@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.db
+backend/uploads/candidates/
+backend/backups/
+*.sql.gz

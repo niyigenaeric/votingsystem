@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UR Student Voting - Ballot</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="session-guard.js"></script>
+</head>
+
+<body>
+    <div class="wide">
+        <div class="card top">
+            <div>
+                <h1>Student Elections</h1>
+                <p class="sub" style="margin:0" id="sub">Loading...</p>
+            </div>
+            <button class="link" id="logout">Sign out</button>
+        </div>
+        <div id="info" class="msg"></div>
+        <div id="ballot"></div>
+    </div>
+    <script src="back.js"></script>
+    <script>
+        if (sessionStorage.getItem('role') !== 'voter') window.location.href = 'index.html';
+        async function signOut() {
+            try {
+                const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+                if (!response.ok) throw new Error('The server did not confirm sign-out.');
+                sessionStorage.clear();
+                window.location.replace('/');
+            } catch (error) {
+                console.error('Sign-out failed:', error);
+                window.alert('Sign-out could not be completed. Check your connection and try again.');
+            }
+        }
+        document.getElementById('logout').addEventListener('click', signOut);
+        const info = document.getElementById('info');
+        const sub = document.getElementById('sub');
+        function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+        function notice(text) { info.textContent = text; info.className = 'msg ok'; }
+        async function castVote(position, candidate, button) {
+            if (!confirm('Record your vote for ' + candidate.name + ' in ' + position.title + '? You cannot change it afterward.')) return;
+            button.disabled = true;
+            try {
+                const res = await fetch('/api/voter/positions/' + encodeURIComponent(position.id) + '/vote', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ candidateId: candidate.id })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.status === 401 || res.status === 403) return signOut();
+                if (!res.ok) throw new Error(data.message || 'Could not record your vote.');
+                position.hasVoted = true;
+                const card = button.closest('.card');
+                card.querySelectorAll('button[data-vote]').forEach(item => { item.disabled = true; });
+                const receipt = el('div', 'msg ok');
+                receipt.setAttribute('role', 'status');
+                receipt.appendChild(el('p', '', 'Your vote is recorded. Save this receipt code; it is shown only once:'));
+                receipt.appendChild(el('strong', '', data.receiptCode));
+                card.appendChild(receipt);
+                notice(data.message);
+            } catch (error) {
+                info.textContent = error.message;
+                info.className = 'msg err';
+                button.disabled = false;
+            }
+        }
+        function renderPosition(position, results) {
+            const card = el('div', 'card');
+            card.appendChild(el('h2', '', position.title));
+            if (position.votingEndsAt) card.appendChild(el('p', 'sub', 'Voting closes at ' + position.votingEndsAt.replace('T', ' ') + ' Kigali time.'));
+            if (position.hasVoted && !results) {
+                card.appendChild(el('p', 'msg ok', 'Your ballot for this position has been recorded.'));
+            }
+            if (results) {
+                position.candidates.forEach(candidate => {
+                    card.appendChild(el('p', '', candidate.name + ': ' + candidate.votes + ' votes'));
+                });
+            } else {
+                const list = el('div', 'candidate-list');
+                position.candidates.forEach(candidate => {
+                    const item = el('article', 'candidate-card');
+                    const img = document.createElement('img');
+                    img.src = candidate.imageUrl;
+                    img.alt = 'Photo of ' + candidate.name;
+                    img.loading = 'lazy';
+                    item.append(img, el('h4', '', candidate.name));
+                    const vote = el('button', 'admin-action', 'Vote for ' + candidate.name);
+                    vote.type = 'button';
+                    vote.dataset.vote = 'true';
+                    vote.addEventListener('click', () => castVote(position, candidate, vote));
+                    item.appendChild(vote);
+                    list.appendChild(item);
+                });
+                card.appendChild(list);
+            }
+            document.getElementById('ballot').appendChild(card);
+        }
+
+        (async () => {
+            try {
+                const res = await fetch('/api/voter/ballot', { credentials: 'same-origin' });
+                if (res.status === 401 || res.status === 403) return signOut();
+                const d = await res.json();
+                if (!res.ok) { info.textContent = d.message || 'Could not load the ballot.'; info.className = 'msg err'; return; }
+                sub.textContent = 'Vote once in each open position assigned to your campus.';
+                const openPositions = d.positions.filter(position => position.status === 'open');
+                const publishedPositions = d.positions.filter(position => position.status === 'closed' && position.published);
+                const waitingPositions = d.positions.filter(position => position.status === 'setup');
+                const closedPositions = d.positions.filter(position => position.status === 'closed' && !position.published);
+                publishedPositions.forEach(position => renderPosition(position, true));
+                openPositions.forEach(position => renderPosition(position, false));
+                const messages = [];
+                const votedCount = d.positions.filter(position => position.hasVoted).length;
+                if (votedCount) messages.push('You have voted in ' + votedCount + (votedCount === 1 ? ' position.' : ' positions.'));
+                if (openPositions.some(position => !position.hasVoted)) messages.push('Voting is open for the positions shown below.');
+                if (closedPositions.length) messages.push('Voting is closed for some positions; their results are not published yet.');
+                if (waitingPositions.length) messages.push('Some positions are not open for voting yet.');
+                if (!messages.length && !publishedPositions.length && !openPositions.length) {
+                    messages.push('No positions are currently open. Please check again later.');
+                }
+                if (publishedPositions.length) messages.unshift('Official results are available for the published positions above.');
+                notice(messages.join(' '));
+            } catch { info.textContent = 'Cannot reach the server.'; info.className = 'msg err'; }
+        })();
+    </script>
+</body>
+
+</html>

@@ -1,11 +1,16 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "backend",
   "version": "1.0.0",
   "description": "Student voting system backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "db:migrate": "node scripts/migrateCurrentSchema.js",
+    "db:verify-audit": "node scripts/verifyAuditChain.js",
+    "db:check-grants": "node scripts/checkDatabaseGrants.js",
+    "test": "node --test"
   },
   "license": "ISC",
   "type": "commonjs",

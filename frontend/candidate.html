@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UR Student Voting - Add Candidates</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="session-guard.js"></script>
+</head>
+
+<body class="candidate-admin-page">
+  <main class="candidate-page-shell">
+    <div class="card candidate-setup">
+      <div class="top">
+        <div class="candidate-page-title">
+          <button type="button" class="back-button" data-back-button aria-label="Back">Back</button>
+          <h1>Add candidates</h1>
+        </div>
+      </div>
+      <p class="sub">First choose the position or group, then enter each candidate's information.</p>
+
+            <div class="card voter-admin-card">
+              <h2>Voter list</h2>
+              <p class="sub" id="voterSummary">Loading...</p>
+              <p class="sub">CSV header: <code>reg_number,full_name,contact_email,campus</code></p>
+              <input type="file" id="voterFile" accept=".csv,text/csv">
+              <button type="button" id="voterUpload">Upload voter list</button>
+              <label for="checkReg">Check a student</label>
+              <input type="text" id="checkReg" maxlength="9" inputmode="numeric" placeholder="223007576">
+              <button type="button" id="checkBtn">Check</button>
+              <div id="voterMsg" class="msg"></div>
+            </div>
+      <form id="positionForm">
+        <h2>1. Add candidates position</h2>
+        <label for="candidatePosition">Position or group name</label>
+        <input type="text" id="candidatePosition" list="positionList" maxlength="100"
+          placeholder="For example, Guild Council or Ministry of Sport and Entertainment" required>
+        <datalist id="positionList"></datalist>
+                <label for="positionCampus">Who can vote for this position?</label>
+                <select id="positionCampus">
+                  <option value="">All campuses (university-wide)</option>
+                </select>
+                <label class="sub"><input type="checkbox" id="allCampuses"> Create this position separately for every campus</label>
+        <fieldset class="deadline-picker">
+          <legend>Last date and time to add candidates</legend>
+          <div class="deadline-picker-fields">
+            <div><label for="candidateEntryDate">Last date</label><input type="date" id="candidateEntryDate" required></div>
+            <div><label for="candidateEntryTime">Time</label><input type="time" id="candidateEntryTime" required></div>
+          </div>
+          <p class="sub">Candidate entry closes automatically at this time. You can also close it earlier from that position's candidate panel.</p>
+        </fieldset>
+        <fieldset class="deadline-picker">
+          <legend>Scheduled voting start</legend>
+          <div class="deadline-picker-fields">
+            <div><label for="votingStartDate">Voting date</label><input type="date" id="votingStartDate" required></div>
+            <div><label for="votingStartTime">Start time</label><input type="time" id="votingStartTime" required></div>
+          </div>
+          <p class="sub">Voting will not start automatically. You can open this position manually at or after this time. Candidate details are locked when the scheduled time arrives.</p>
+          <p class="sub">All schedule times use Rwanda local time (Africa/Kigali).</p>
+          <button type="button" id="confirmDeadline">OK - confirm deadline</button>
+          <p id="deadlineConfirmed" class="deadline-confirmed" role="status" aria-live="polite"></p>
+        </fieldset>
+        <fieldset class="deadline-picker">
+          <legend>Scheduled voting end</legend>
+          <div class="deadline-picker-fields">
+            <div><label for="votingEndDate">End date</label><input type="date" id="votingEndDate" required></div>
+            <div><label for="votingEndTime">End time</label><input type="time" id="votingEndTime" required></div>
+          </div>
+          <p class="sub">The position closes automatically at this time. An administrator can close it earlier.</p>
+        </fieldset>
+        <button type="submit" id="continueCandidates" disabled>Continue to candidate details</button>
+      </form>
+
+      <form id="candidateForm" hidden>
+        <h2>2. Candidate information</h2>
+        <p class="sub">Adding candidates for: <strong id="selectedPosition"></strong></p>
+        <div id="candidateCampusChoiceWrap" hidden>
+          <label for="candidateCampusChoice">Campus for this candidate</label>
+          <select id="candidateCampusChoice"></select>
+        </div>
+        <button type="button" class="link" id="changePosition">Choose a different position</button>
+        <label for="candidateReg">Registration number (optional)</label>
+        <input type="text" id="candidateReg" maxlength="9" inputmode="numeric" pattern="22[2-5]0[0-9]{5}"
+          placeholder="223007576">
+        <label for="candidateName">Candidate name</label>
+        <input type="text" id="candidateName" maxlength="100" required>
+        <label for="candidateImage">Candidate image</label>
+        <input type="file" id="candidateImage" accept="image/jpeg,image/png,image/webp" required>
+        <p class="sub">Use a JPEG, PNG, or WebP image no larger than 5 MB.</p>
+        <button type="submit" id="candidateSubmit">Add candidate</button>
+      </form>
+      <div id="candidateFormMsg" class="msg"></div>
+    </div>
+    <section class="card candidate-overview" aria-labelledby="viewCandidatesTitle">
+      <div class="candidate-overview-heading">
+        <div>
+          <h2 id="viewCandidatesTitle">View candidates</h2>
+          <p class="sub">Review candidates grouped by position. Select a position to open its full details and manage candidates.</p>
+        </div>
+        <button type="button" class="ghost" id="refreshCandidates">Refresh</button>
+      </div>
+      <div id="candidateOverviewMsg" class="msg" role="status" aria-live="polite"></div>
+      <div id="candidateOverview" class="candidate-position-groups"></div>
+    </section>
+  </main>
+
+  <script src="back.js"></script>
+  <script>
+    const role = sessionStorage.getItem('role');
+    if (role !== 'admin') window.location.href = 'index.html';
+
+    const positionForm = document.getElementById('positionForm');
+    const candidateForm = document.getElementById('candidateForm');
+    const formMessage = document.getElementById('candidateFormMsg');
+    const candidatePosition = document.getElementById('candidatePosition');
+    const deadlineDate = document.getElementById('candidateEntryDate');
+    const deadlineTime = document.getElementById('candidateEntryTime');
+    const votingStartDate = document.getElementById('votingStartDate');
+    const votingStartTime = document.getElementById('votingStartTime');
+    const votingEndDate = document.getElementById('votingEndDate');
+    const votingEndTime = document.getElementById('votingEndTime');
+    const positionList = document.getElementById('positionList');
+    const positionCampus = document.getElementById('positionCampus');
+    const allCampuses = document.getElementById('allCampuses');
+    const confirmDeadlineButton = document.getElementById('confirmDeadline');
+    const continueButton = document.getElementById('continueCandidates');
+    const deadlineConfirmed = document.getElementById('deadlineConfirmed');
+    const candidateOverview = document.getElementById('candidateOverview');
+    const candidateOverviewMsg = document.getElementById('candidateOverviewMsg');
+    const candidateCampusChoiceWrap = document.getElementById('candidateCampusChoiceWrap');
+    const candidateCampusChoice = document.getElementById('candidateCampusChoice');
+    let selectedPosition = '';
+    let selectedPositionId = 0;
+    let positionsForCandidate = [];
+    let knownPositions = [];
+    let confirmedPosition = '';
+    let confirmedDeadline = '';
+    let confirmedVotingStart = '';
+    let confirmedVotingEnd = '';
+
+    async function signOut() {
+      try {
+        const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        if (!response.ok) throw new Error('The server did not confirm sign-out.');
+        sessionStorage.clear();
+        window.location.replace('/');
+      } catch (error) {
+        console.error('Sign-out failed:', error);
+        window.alert('Sign-out could not be completed. Check your connection and try again.');
+      }
+    }
+
+    function el(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    }
+
+    function renderCandidates(positions) {
+      candidateOverview.replaceChildren();
+      if (!positions.length) {
+        candidateOverview.appendChild(el('p', 'admin-empty', 'No positions or candidates have been added yet.'));
+        return;
+      }
+
+      positions.forEach(position => {
+        const group = el('article', 'candidate-position-group');
+        const heading = el('div', 'candidate-position-heading');
+        const title = el('a', '', position.title);
+        title.href = 'position.html?id=' + encodeURIComponent(position.id);
+        heading.appendChild(title);
+        const summary = el('span', 'candidate-position-summary',
+          position.candidates.length + (position.candidates.length === 1 ? ' candidate' : ' candidates')
+          + (position.campus ? ' · ' + position.campus + ' campus' : ' · All campuses'));
+        heading.appendChild(summary);
+        group.appendChild(heading);
+
+        if (!position.candidates.length) {
+          group.appendChild(el('p', 'sub candidate-position-empty', 'No candidates in this position yet.'));
+        } else {
+          const cards = el('div', 'candidate-overview-list');
+          position.candidates.forEach(candidate => {
+            const card = el('article', 'candidate-overview-card');
+            const image = document.createElement('img');
+            image.src = candidate.imageUrl;
+            image.alt = 'Photo of ' + candidate.name;
+            image.loading = 'lazy';
+            card.append(image, el('div', 'candidate-overview-details',
+              candidate.name + (candidate.regNumber ? '\n' + candidate.regNumber : '\nNo registration number')));
+            cards.appendChild(card);
+          });
+          group.appendChild(cards);
+        }
+
+        const detailsLink = el('a', 'candidate-position-details', 'View position details');
+        detailsLink.href = title.href;
+        group.appendChild(detailsLink);
+        candidateOverview.appendChild(group);
+      });
+    }
+
+    async function loadPositions() {
+      const response = await fetch('/api/admin/candidates', { credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401 || response.status === 403) {
+        signOut();
+        throw new Error('Your session has expired. Sign in again.');
+      }
+      if (!response.ok) throw new Error(data.message || 'Could not load positions.');
+      knownPositions = data.positions || [];
+      positionList.replaceChildren();
+      knownPositions.forEach(position => {
+        const option = document.createElement('option');
+        option.value = position.title;
+        positionList.appendChild(option);
+      });
+      renderCandidates(knownPositions);
+    }
+
+    function setDeadlineForPosition() {
+      const title = candidatePosition.value.trim().toLowerCase();
+      const campus = allCampuses.checked ? null : positionCampus.value;
+      const match = knownPositions.find(position =>
+        position.title.toLowerCase() === title && (campus === null || (position.campus || '') === campus)
+      );
+
+      if (match && match.candidateEntryDeadline) {
+        const [date, time] = match.candidateEntryDeadline.slice(0, 16).split('T');
+        deadlineDate.value = date;
+        deadlineTime.value = time;
+      }
+      if (match && match.votingStartsAt) {
+        const [date, time] = match.votingStartsAt.slice(0, 16).split('T');
+        votingStartDate.value = date;
+        votingStartTime.value = time;
+      }
+      if (match && match.votingEndsAt) {
+        const [date, time] = match.votingEndsAt.slice(0, 16).split('T');
+        votingEndDate.value = date;
+        votingEndTime.value = time;
+      }
+    }
+
+    function invalidateDeadlineConfirmation() {
+      confirmedPosition = '';
+      confirmedDeadline = '';
+      confirmedVotingStart = '';
+      confirmedVotingEnd = '';
+      continueButton.disabled = true;
+      deadlineConfirmed.textContent = '';
+      deadlineConfirmed.className = 'deadline-confirmed';
+    }
+
+    candidatePosition.addEventListener('input', () => {
+      deadlineDate.value = '';
+      deadlineTime.value = '';
+      votingStartDate.value = '';
+      votingStartTime.value = '';
+      votingEndDate.value = '';
+      votingEndTime.value = '';
+      invalidateDeadlineConfirmation();
+      setDeadlineForPosition();
+    });
+    [deadlineDate, deadlineTime, votingStartDate, votingStartTime, votingEndDate, votingEndTime]
+      .forEach(input => input.addEventListener('input', invalidateDeadlineConfirmation));
+    positionCampus.addEventListener('change', () => {
+      invalidateDeadlineConfirmation();
+      setDeadlineForPosition();
+    });
+    allCampuses.addEventListener('change', () => {
+      positionCampus.disabled = allCampuses.checked;
+      invalidateDeadlineConfirmation();
+      setDeadlineForPosition();
+    });
+
+    loadPositions()
+      .then(() => {
+        const preselected = new URLSearchParams(location.search).get('position');
+        if (preselected) {
+          candidatePosition.value = preselected.slice(0, 100);
+          const campus = new URLSearchParams(location.search).get('campus');
+          if (campus) positionCampus.value = campus;
+          setDeadlineForPosition();
+        }
+      })
+      .catch(error => {
+        formMessage.textContent = error.message || 'Could not load positions.';
+        formMessage.className = 'msg err';
+      });
+
+    confirmDeadlineButton.addEventListener('click', async () => {
+      if (!positionForm.reportValidity()) return;
+      selectedPosition = candidatePosition.value.trim();
+      const deadline = deadlineDate.value + 'T' + deadlineTime.value;
+      const votingStart = votingStartDate.value + 'T' + votingStartTime.value;
+      const votingEnd = votingEndDate.value + 'T' + votingEndTime.value;
+      const positionKey = selectedPosition.toLowerCase() + '|' + (allCampuses.checked ? '*' : positionCampus.value);
+      confirmDeadlineButton.disabled = true;
+      continueButton.disabled = true;
+      formMessage.className = 'msg';
+      deadlineConfirmed.textContent = '';
+      try {
+        const response = await fetch('/api/admin/positions/candidate-entry', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: selectedPosition,
+            deadline,
+            votingStart,
+            votingEnd,
+            campus: positionCampus.value,
+            allCampuses: allCampuses.checked
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 401 || response.status === 403) {
+          signOut();
+          return;
+        }
+        if (!response.ok) throw new Error(data.message || 'Could not save candidate-entry deadline.');
+        selectedPosition = data.title;
+        positionsForCandidate = data.positions || [{ id: data.id, campus: positionCampus.value || null }];
+        confirmedPosition = positionKey;
+        confirmedDeadline = deadline;
+        confirmedVotingStart = votingStart;
+        confirmedVotingEnd = votingEnd;
+        const scheduledCampuses = new Set(positionsForCandidate.map(position => position.campus || ''));
+        knownPositions = knownPositions.filter(position => position.title.toLowerCase() !== selectedPosition.toLowerCase()
+          || !scheduledCampuses.has(position.campus || ''));
+        positionsForCandidate.forEach(position => knownPositions.push({
+          id: position.id,
+          title: data.title,
+          campus: position.campus,
+          candidateEntryDeadline: data.deadline,
+          votingStartsAt: data.votingStartsAt,
+          votingEndsAt: data.votingEndsAt,
+          candidateEntryClosed: false
+        }));
+        candidateCampusChoice.replaceChildren();
+        positionsForCandidate.forEach(position => {
+          const option = document.createElement('option');
+          option.value = String(position.id);
+          option.textContent = (position.campus || 'All campuses') + ' — ' + data.title;
+          candidateCampusChoice.appendChild(option);
+        });
+        candidateCampusChoiceWrap.hidden = positionsForCandidate.length < 2;
+        selectedPositionId = Number(candidateCampusChoice.value);
+        continueButton.disabled = false;
+        deadlineConfirmed.textContent = 'Candidate deadline: ' + deadlineDate.value + ' at ' + deadlineTime.value
+          + '. Voting starts: ' + votingStartDate.value + ' at ' + votingStartTime.value
+          + '. Voting ends: ' + votingEndDate.value + ' at ' + votingEndTime.value + ' (Kigali time).';
+        deadlineConfirmed.className = 'deadline-confirmed is-confirmed';
+      } catch (error) {
+        formMessage.textContent = error.message || 'Cannot reach the server.';
+        formMessage.className = 'msg err';
+      } finally {
+        confirmDeadlineButton.disabled = false;
+      }
+    });
+
+    positionForm.addEventListener('submit', event => {
+      event.preventDefault();
+      const positionKey = candidatePosition.value.trim().toLowerCase() + '|' + (allCampuses.checked ? '*' : positionCampus.value);
+      if (!confirmedDeadline || confirmedPosition !== positionKey
+        || confirmedDeadline !== deadlineDate.value + 'T' + deadlineTime.value
+        || confirmedVotingStart !== votingStartDate.value + 'T' + votingStartTime.value
+        || confirmedVotingEnd !== votingEndDate.value + 'T' + votingEndTime.value) {
+        formMessage.textContent = 'Confirm the position and all schedule dates before continuing.';
+        formMessage.className = 'msg err';
+        return;
+      }
+      selectedPosition = candidatePosition.value.trim();
+      selectedPositionId = Number(candidateCampusChoice.value);
+      const chosenPosition = positionsForCandidate.find(position => Number(position.id) === selectedPositionId);
+      document.getElementById('selectedPosition').textContent = selectedPosition
+        + (chosenPosition && chosenPosition.campus ? ' — ' + chosenPosition.campus : '');
+      positionForm.hidden = true;
+      candidateForm.hidden = false;
+      document.getElementById('candidateName').focus();
+    });
+
+    candidateCampusChoice.addEventListener('change', () => {
+      selectedPositionId = Number(candidateCampusChoice.value);
+      const position = positionsForCandidate.find(item => Number(item.id) === selectedPositionId);
+      document.getElementById('selectedPosition').textContent = selectedPosition
+        + (position && position.campus ? ' — ' + position.campus : '');
+    });
+
+    document.getElementById('changePosition').addEventListener('click', () => {
+      candidateForm.hidden = true;
+      positionForm.hidden = false;
+      formMessage.className = 'msg';
+      invalidateDeadlineConfirmation();
+      document.getElementById('candidatePosition').focus();
+    });
+
+    candidateForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const name = document.getElementById('candidateName').value.trim();
+      const reg = document.getElementById('candidateReg').value.trim();
+      const image = document.getElementById('candidateImage').files[0];
+      const button = document.getElementById('candidateSubmit');
+      if (!image) {
+        formMessage.textContent = 'Choose a candidate image first.';
+        formMessage.className = 'msg err';
+        return;
+      }
+      if (image.size > 5 * 1024 * 1024) {
+        formMessage.textContent = 'Candidate image must be 5 MB or smaller.';
+        formMessage.className = 'msg err';
+        return;
+      }
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.type)) {
+        formMessage.textContent = 'Choose a JPEG, PNG, or WebP image.';
+        formMessage.className = 'msg err';
+        return;
+      }
+
+      if (!confirm('Add ' + name + (reg ? ' (' + reg + ')' : '') + ' to ' + selectedPosition + '?')) return;
+      button.disabled = true;
+      formMessage.className = 'msg';
+      try {
+        const res = await fetch('/api/admin/candidates', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': image.type,
+            'X-Candidate-Name': encodeURIComponent(name),
+            'X-Candidate-Reg': reg,
+            'X-Candidate-Position': encodeURIComponent(selectedPosition),
+            'X-Candidate-Position-Id': String(selectedPositionId)
+          },
+          body: image
+        });
+        if (res.status === 401 || res.status === 403) {
+          signOut();
+          return;
+        }
+        const data = await res.json();
+        if (!res.ok) {
+          formMessage.textContent = data.message || 'Could not add candidate.';
+          formMessage.className = 'msg err';
+          return;
+        }
+        candidateForm.reset();
+        selectedPositionId = Number(candidateCampusChoice.value);
+        const currentPosition = positionsForCandidate.find(position => Number(position.id) === selectedPositionId);
+        document.getElementById('selectedPosition').textContent = selectedPosition
+          + (currentPosition && currentPosition.campus ? ' — ' + currentPosition.campus : '');
+        formMessage.textContent = 'Candidate added under ' + selectedPosition + '. You can add another candidate for this position.';
+        formMessage.className = 'msg ok';
+        try {
+          await loadPositions();
+          candidateOverviewMsg.textContent = '';
+          candidateOverviewMsg.className = 'msg';
+        } catch (error) {
+          candidateOverviewMsg.textContent = 'Candidate was added, but the candidate list could not be refreshed: '
+            + (error.message || 'refresh failed');
+          candidateOverviewMsg.className = 'msg err';
+        }
+      } catch {
+        formMessage.textContent = 'Cannot reach the server.';
+        formMessage.className = 'msg err';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById('refreshCandidates').addEventListener('click', async () => {
+      candidateOverviewMsg.textContent = '';
+      candidateOverviewMsg.className = 'msg';
+      try {
+        await loadPositions();
+      } catch (error) {
+        candidateOverviewMsg.textContent = error.message || 'Could not refresh candidates.';
+        candidateOverviewMsg.className = 'msg err';
+      }
+    });
+      (function () {
+        const $ = id => document.getElementById(id);
+        const say = (text, ok) => { $('voterMsg').textContent = text; $('voterMsg').className = 'msg ' + (ok ? 'ok' : 'err'); };
+        async function api(url, options) {
+          const r = await fetch(url, Object.assign({ credentials: 'same-origin' }, options));
+          const d = await r.json().catch(() => ({}));
+          if (r.status === 401) { signOut(); throw new Error('Signed out'); }
+          if (!r.ok) throw new Error(d.message || 'Request failed');
+          return d;
+        }
+        async function loadSummary() {
+          try {
+            const rows = await api('/api/admin/voters/summary');
+            const total = rows.reduce((s, r) => s + r.total, 0);
+            $('voterSummary').textContent = total
+              ? total + ' eligible students loaded. ' + rows.map(r => r.campus + ': ' + r.total).join(', ') + '.'
+              : 'No voter list yet. Upload it first so candidates and voters can be checked.';
+          } catch (e) { $('voterSummary').textContent = e.message; }
+        }
+        api('/api/admin/campuses').then(list => list.forEach(c => {
+          const o = document.createElement('option'); o.value = c; o.textContent = c + ' campus only';
+          $('positionCampus').appendChild(o);
+        })).catch(error => {
+          $('candidateOverviewMsg').textContent = 'Could not load campus choices: ' + error.message;
+          $('candidateOverviewMsg').className = 'msg err';
+        });
+
+        $('voterUpload').addEventListener('click', async () => {
+          const file = $('voterFile').files[0];
+          if (!file) return say('Choose a CSV file first.', false);
+          $('voterUpload').disabled = true;
+          try {
+            const d = await api('/api/admin/students/upload', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: await file.text() });
+            let t = 'Received ' + d.received + ' rows. Added ' + d.added + ', duplicates skipped ' + d.duplicatesSkipped + '.';
+            if (d.invalidLines.length) t += ' Problems: ' + d.invalidLines.join(' | ');
+            say(t, !d.invalidLines.length);
+            loadSummary();
+          } catch (e) { say(e.message, false); }
+          finally { $('voterUpload').disabled = false; }
+        });
+
+        $('checkBtn').addEventListener('click', async () => {
+          try {
+            const d = await api('/api/admin/voters/check?reg=' + encodeURIComponent($('checkReg').value.trim()));
+            say(d.eligible ? d.name + ' is eligible (' + (d.campus || 'campus not set') + ' campus, ' + (d.activated ? 'account activated' : 'not yet activated') + ').'
+              : 'This registration number is NOT on the voter list.', d.eligible);
+          } catch (e) { say(e.message, false); }
+        });
+        loadSummary();
+      })();
+  </script>
+</body>
+
+</html>

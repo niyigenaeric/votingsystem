@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UR Student Voting - Sign in</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Student Voting System</h1>
+      <p class="sub">University of Rwanda Student Voting System. Sign in with your registration number.</p>
+      <label for="reg">Registration number</label>
+      <input type="text" id="reg" autocomplete="username">
+      <label for="pw">Password</label>
+      <input type="password" id="pw" autocomplete="current-password">
+      <button id="btn">Sign in</button>
+      <div id="codeStep" hidden>
+        <label for="code">Administrator sign-in code</label>
+        <input type="text" id="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+        <button id="verifyCode" type="button">Verify code</button>
+      </div>
+      <p class="sub" style="margin:14px 0 0">First time? <a href="activate.html">Activate your account</a></p>
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+
+  <script src="back.js"></script>
+  <script>
+    const btn = document.getElementById('btn');
+    const msg = document.getElementById('msg');
+
+    function show(text, type) { msg.textContent = text; msg.className = 'msg ' + type; }
+
+    function enterApplication(data) {
+      sessionStorage.setItem('role', data.role);
+      window.location.href = data.role === 'admin' || data.role === 'auditor' ? 'admin.html' : 'vote.html';
+    }
+
+    async function login() {
+      const regNumber = document.getElementById('reg').value.trim();
+      const password = document.getElementById('pw').value;
+      if (!regNumber || !password) return show('Enter your registration number and password.', 'err');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ regNumber, password })
+        });
+        const data = await res.json();
+        if (!res.ok) return show(data.message || 'Sign in failed.', 'err');
+        if (data.requiresCode) {
+          document.getElementById('codeStep').hidden = false;
+          document.getElementById('code').focus();
+          return show('A one-time sign-in code has been sent to the administrator email.', 'ok');
+        }
+        enterApplication(data);
+      } catch {
+        show('Cannot reach the server.', 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener('click', login);
+    document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+    document.getElementById('verifyCode').addEventListener('click', async () => {
+      const regNumber = document.getElementById('reg').value.trim();
+      const code = document.getElementById('code').value.trim();
+      if (!/^\d{6}$/.test(code)) return show('Enter the 6-digit code sent to your administrator email.', 'err');
+      const verify = document.getElementById('verifyCode');
+      verify.disabled = true;
+      try {
+        const res = await fetch('/api/auth/login/verify', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ regNumber, code })
+        });
+        const data = await res.json();
+        if (!res.ok) return show(data.message || 'Code verification failed.', 'err');
+        enterApplication(data);
+      } catch {
+        show('Cannot reach the server.', 'err');
+      } finally {
+        verify.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

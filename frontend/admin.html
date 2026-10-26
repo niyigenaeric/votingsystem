@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UR Student Voting - Admin</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="session-guard.js"></script>
+</head>
+
+<body class="admin-page">
+  <div class="admin-shell">
+    <header class="admin-header">
+      <a class="admin-brand" href="admin.html" aria-label="Student Voting administration home">
+        <span class="admin-brand-mark" aria-hidden="true">UR</span>
+        <span><strong>Student Voting</strong><small>Administration</small></span>
+      </a>
+      <div class="admin-header-actions">
+        <span class="admin-role" id="adminRole"></span>
+        <button class="link" id="logout">Sign out</button>
+      </div>
+    </header>
+
+    <div class="admin-layout sidebar-collapsed" id="adminLayout">
+      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin menu">
+        <div class="admin-sidebar-heading">
+          <p class="admin-sidebar-title">Manage election</p>
+          <button class="admin-menu-toggle" id="menuToggle" type="button" aria-controls="adminSidebarNav" aria-expanded="false" aria-label="Show navigation menu" title="Show navigation menu">
+            <span aria-hidden="true">☰</span>
+          </button>
+        </div>
+        <nav class="admin-sidebar-nav" id="adminSidebarNav" aria-label="Admin sections">
+          <a href="#overview" class="admin-sidebar-link active" data-section="overview" aria-label="Overview" title="Overview">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/overview.jpg" alt=""></span><span class="admin-sidebar-text">Overview</span>
+          </a>
+          <a href="#electionSection" class="admin-sidebar-link" data-section="electionSection" aria-label="Election control" title="Election control">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/election-control.jpg" alt=""></span><span class="admin-sidebar-text">Election control</span>
+          </a>
+          <a href="candidate.html" class="admin-sidebar-link" id="studentsNav" aria-label="Eligible students" title="Eligible students">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/eligible-students.jpg" alt=""></span><span class="admin-sidebar-text">Eligible students</span>
+          </a>
+          <a href="#resultsSection" class="admin-sidebar-link" data-section="resultsSection" aria-label="Results" title="Results">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/results.jpg" alt=""></span><span class="admin-sidebar-text">Results</span>
+          </a>
+          <a href="#auditSection" class="admin-sidebar-link" data-section="auditSection" aria-label="Audit log" title="Audit log">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/audit-log.jpg" alt=""></span><span class="admin-sidebar-text">Audit log</span>
+          </a>
+        </nav>
+        <div class="admin-sidebar-footer">
+          <span class="admin-sidebar-status-dot" aria-hidden="true"></span>
+          <span class="admin-sidebar-text" id="sidebarVotingText">Checking voting status</span>
+        </div>
+      </aside>
+      <main class="admin-content">
+        <section class="admin-intro" aria-labelledby="pageTitle">
+          <div>
+            <p class="eyebrow">ELECTION CONTROL CENTER</p>
+            <h1 id="pageTitle">Election administration</h1>
+            <p class="sub">Manage eligible students, candidates, and election results from one place.</p>
+          </div>
+          <span class="admin-live" id="activeVotingSummary"><span aria-hidden="true"></span><span id="activeVotingText">Checking positions</span></span>
+        </section>
+
+        <section class="card admin-section" id="overview" aria-labelledby="overviewTitle">
+          <div class="section-heading">
+            <div><p class="eyebrow">AT A GLANCE</p><h2 id="overviewTitle">Election overview</h2></div>
+            <button type="button" class="admin-action" id="addCandidates">Add candidates</button>
+          </div>
+          <div class="stats">
+            <div class="stat"><span class="stat-icon" aria-hidden="true">01</span><b id="sTotal">-</b><span>Eligible voters</span></div>
+            <div class="stat"><span class="stat-icon" aria-hidden="true">02</span><b id="sAct">-</b><span>Activated accounts</span></div>
+            <div class="stat"><span class="stat-icon" aria-hidden="true">03</span><b id="sVoted">-</b><span>Position ballots cast</span></div>
+          </div>
+          <div id="msgStats" class="msg" role="status" aria-live="polite"></div>
+          <h3 class="admin-subheading">Positions and candidates</h3>
+          <p class="sub admin-section-copy">Choose a position to review its candidates. Voting availability is shown beside each one.</p>
+          <div id="posList" class="admin-position-list"></div>
+        </section>
+
+        <section class="card admin-section" id="electionSection" aria-labelledby="electionTitle">
+          <div class="section-heading">
+            <div><p class="eyebrow">ELECTION CONTROL</p><h2 id="electionTitle">Manage each position</h2></div>
+          </div>
+          <p class="sub admin-section-copy" id="electionHelp">Schedules use Rwanda local time (Africa/Kigali). Voting does not start automatically: an administrator opens a position after its scheduled start. Each position closes automatically at its scheduled end, or may be closed earlier.</p>
+          <div id="msgPos" class="msg" role="status" aria-live="polite"></div>
+          <div id="controlList" class="admin-control-list"></div>
+        </section>
+
+        <section class="card admin-section" id="resultsSection" aria-labelledby="resultsTitle">
+          <div class="section-heading">
+            <div><p class="eyebrow">TALLY &amp; PUBLICATION</p><h2 id="resultsTitle">Voting results</h2></div>
+          </div>
+          <p class="sub admin-section-copy" id="resHelp"></p>
+          <div id="results"></div>
+          <div id="msgRes" class="msg" role="status" aria-live="polite"></div>
+        </section>
+
+        <section class="card admin-section" id="auditSection" aria-labelledby="auditTitle">
+          <div class="section-heading">
+            <div><p class="eyebrow">ACCOUNTABILITY</p><h2 id="auditTitle">Audit log</h2></div>
+            <button type="button" class="admin-action" id="loadAudit">Load audit entries</button>
+          </div>
+          <p class="sub admin-section-copy">Entries are displayed oldest first. Run <code>npm run db:verify-audit</code> on the server to recompute and verify the complete hash chain.</p>
+          <div id="auditEntries" aria-live="polite"></div>
+          <div id="msgAudit" class="msg" role="status" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog class="admin-dialog" id="confirmDialog" aria-labelledby="dialogTitle">
+    <form method="dialog" class="admin-dialog-card">
+      <span class="admin-dialog-mark" aria-hidden="true">!</span>
+      <h2 id="dialogTitle">Confirm action</h2>
+      <p id="dialogMessage"></p>
+      <div class="admin-dialog-actions">
+        <button type="button" class="admin-cancel" id="dialogCancel">Cancel</button>
+        <button type="button" class="admin-action" id="dialogConfirm">Continue</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="back.js"></script>
+  <script>
+    const role = sessionStorage.getItem('role');
+    if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
+    const $ = x => document.getElementById(x);
+    $('adminRole').textContent = role === 'admin' ? 'Administrator' : 'Auditor';
+    const countdownUpdates = [];
+    function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+    function note(box, text, type) { box.textContent = text; box.className = 'msg ' + type; }
+    async function signOut() {
+      try {
+        const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        if (!response.ok) throw new Error('The server did not confirm sign-out.');
+        sessionStorage.clear();
+        window.location.replace('/');
+      } catch (error) {
+        console.error('Sign-out failed:', error);
+        window.alert('Sign-out could not be completed. Check your connection and try again.');
+      }
+    }
+    async function call(url, o) {
+      o = o || {};
+      const res = await fetch(url, Object.assign({}, o, { credentials: 'same-origin' }));
+      if (res.status === 401) { signOut(); throw new Error('Session expired'); }
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.message || 'Request failed');
+      return d;
+    }
+    $('logout').addEventListener('click', signOut);
+    const adminLayout = $('adminLayout');
+    const menuToggle = $('menuToggle');
+    function updateMenuToggle() {
+      const expanded = !adminLayout.classList.contains('sidebar-collapsed');
+      menuToggle.setAttribute('aria-expanded', String(expanded));
+      const label = expanded ? 'Hide navigation menu' : 'Show navigation menu';
+      menuToggle.setAttribute('aria-label', label);
+      menuToggle.title = label;
+    }
+    menuToggle.addEventListener('click', () => {
+      adminLayout.classList.toggle('sidebar-collapsed');
+      updateMenuToggle();
+    });
+    document.querySelectorAll('.admin-sidebar-link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelectorAll('.admin-sidebar-link').forEach(item => item.classList.remove('active'));
+        link.classList.add('active');
+      });
+    });
+    updateMenuToggle();
+    $('addCandidates').addEventListener('click', () => { window.location.href = 'candidate.html'; });
+    if (role !== 'admin') {
+      $('studentsNav').hidden = true;
+      $('addCandidates').style.display = 'none';
+    }
+
+    function confirmAction(title, message, actionLabel) {
+      const dialog = $('confirmDialog');
+      $('dialogTitle').textContent = title;
+      $('dialogMessage').textContent = message;
+      $('dialogConfirm').textContent = actionLabel;
+      dialog.returnValue = '';
+      dialog.showModal();
+      return new Promise(resolve => {
+        $('dialogCancel').onclick = () => dialog.close('cancel');
+        $('dialogConfirm').onclick = () => dialog.close('confirm');
+        dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true });
+      });
+    }
+
+    async function loadStats() {
+      try {
+        const s = await call('/api/admin/stats');
+        $('sTotal').textContent = s.total ?? 0; $('sAct').textContent = s.activated ?? 0; $('sVoted').textContent = s.voted ?? 0;
+      } catch (e) { note($('msgStats'), e.message, 'err'); }
+    }
+
+    async function loadElection() {
+      try {
+        const d = await call('/api/admin/candidates');
+        countdownUpdates.length = 0;
+        const openCount = d.positions.filter(position => position.status === 'open').length;
+        $('activeVotingText').textContent = openCount
+          ? 'Voting active for ' + openCount + (openCount === 1 ? ' position' : ' positions')
+          : 'No active voting';
+        $('sidebarVotingText').textContent = openCount
+          ? openCount + (openCount === 1 ? ' position voting' : ' positions voting')
+          : 'No active voting';
+        document.querySelector('.admin-sidebar-status-dot').classList.toggle('active', openCount > 0);
+        $('activeVotingSummary').classList.toggle('inactive', openCount === 0);
+        const list = $('posList');
+        const controls = $('controlList');
+        list.replaceChildren();
+        controls.replaceChildren();
+        if (!d.positions.length) {
+          list.appendChild(el('p', 'admin-empty', 'No positions have been added yet.'));
+          controls.appendChild(el('p', 'admin-empty', 'Add candidates to create your first position.'));
+        }
+        d.positions.forEach(p => {
+          const state = p.status === 'open'
+            ? 'Voting open'
+            : p.status === 'closed'
+              ? (p.published ? 'Results published' : 'Voting closed')
+              : 'Not open';
+          const a = el('a', 'pos-link');
+          a.href = 'position.html?id=' + p.id;
+          a.append(el('b', '', p.title));
+          const summary = el('span', 'position-summary');
+          summary.append(
+            el('span', 'position-state ' + p.status, state),
+            ...(p.campus ? [el('span', 'position-candidate-count', p.campus + ' campus')] : []),
+            el('span', 'position-candidate-count', p.candidates.length + (p.candidates.length === 1 ? ' candidate' : ' candidates')),
+            el('span', 'position-candidate-count', p.candidateEntryClosed
+              ? 'Candidate entry closed'
+              : p.candidateEntryDeadline
+                ? 'Candidates until ' + p.candidateEntryDeadline.replace('T', ' ')
+                : 'Candidate deadline not set'),
+            countdownElement(p, 'position-candidate-count')
+          );
+          a.append(summary);
+          list.appendChild(a);
+
+          const row = el('article', 'admin-control-row');
+          const info = el('div', 'admin-control-info');
+          info.append(
+            el('h3', '', p.title),
+            ...(p.campus ? [el('p', 'admin-control-meta', p.campus + ' campus')] : []),
+            el('p', 'admin-control-meta', p.candidates.length + (p.candidates.length === 1 ? ' candidate' : ' candidates')),
+            el('p', 'admin-control-meta', p.candidateEntryClosed
+              ? 'Candidate entry closed'
+              : p.candidateEntryDeadline
+                ? 'Candidate entry deadline: ' + p.candidateEntryDeadline.replace('T', ' ')
+                : 'Candidate entry deadline not set'),
+            countdownElement(p, 'admin-control-meta')
+          );
+          const badge = el('span', 'position-state ' + p.status, state);
+          info.appendChild(badge);
+          row.appendChild(info);
+
+          if (role === 'admin' && p.status !== 'closed') {
+            const next = p.status === 'setup' ? 'open' : 'closed';
+            const button = el('button', 'admin-action', next === 'open' ? 'Open voting' : 'Close voting');
+            button.type = 'button';
+            if (next === 'open' && (!p.votingStartsAt || !p.votingEndsAt
+              || new Date(p.votingStartsAt).getTime() > Date.now()
+              || new Date(p.votingEndsAt).getTime() <= Date.now())) {
+              button.disabled = true;
+              button.title = 'Voting can open only after its scheduled start and before its scheduled end';
+            }
+            if (next === 'open') p.openVotingButton = button;
+            button.addEventListener('click', () => updatePositionStatus(p, next));
+            row.appendChild(button);
+          } else if (role === 'admin' && p.status === 'closed' && !p.published) {
+            const button = el('button', 'admin-action', 'Publish results');
+            button.type = 'button';
+            button.addEventListener('click', () => publishPosition(p));
+            row.appendChild(button);
+          } else if (p.status === 'closed' && p.published) {
+            row.appendChild(el('span', 'admin-published-label', 'Published'));
+          }
+          controls.appendChild(row);
+        });
+      } catch (e) { note($('msgPos'), e.message, 'err'); }
+    }
+
+    function countdownElement(position, className) {
+      const node = el('span', className);
+      const update = () => {
+        if (position.status === 'open') {
+          const remaining = position.votingEndsAt ? new Date(position.votingEndsAt).getTime() - Date.now() : NaN;
+          if (!Number.isFinite(remaining)) node.textContent = 'Voting is open; end time not set';
+          else if (remaining <= 0) node.textContent = 'Scheduled end reached; closing';
+          else {
+            const totalMinutes = Math.floor(remaining / 60000);
+            const days = Math.floor(totalMinutes / 1440);
+            const hours = Math.floor((totalMinutes % 1440) / 60);
+            const minutes = totalMinutes % 60;
+            node.textContent = 'Voting closes in ' + days + 'd ' + hours + 'h ' + minutes + 'm';
+          }
+          return;
+        }
+        if (position.status === 'closed') {
+          node.textContent = 'Voting is closed';
+          return;
+        }
+        if (!position.votingStartsAt) {
+          node.textContent = 'Voting date not set';
+          if (position.openVotingButton) position.openVotingButton.disabled = true;
+          return;
+        }
+        const remaining = new Date(position.votingStartsAt).getTime() - Date.now();
+        const end = position.votingEndsAt ? new Date(position.votingEndsAt).getTime() : NaN;
+        if (position.openVotingButton) {
+          position.openVotingButton.disabled = remaining > 0 || !Number.isFinite(end) || end <= Date.now();
+          position.openVotingButton.title = remaining > 0
+            ? 'Voting opens manually at or after the scheduled start time'
+            : end <= Date.now()
+              ? 'The scheduled voting end time has passed'
+              : 'Open voting for this position';
+        }
+        if (remaining <= 0) {
+          node.textContent = 'Scheduled start reached — open manually';
+          return;
+        }
+        const totalSeconds = Math.floor(remaining / 1000);
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        node.textContent = 'Voting starts in ' + days + 'd ' + hours + 'h ' + minutes + 'm ' + seconds + 's';
+      };
+      update();
+      countdownUpdates.push(update);
+      return node;
+    }
+
+    setInterval(() => countdownUpdates.forEach(update => update()), 1000);
+
+    async function updatePositionStatus(position, next) {
+      const opening = next === 'open';
+      const confirmed = await confirmAction(
+        opening ? 'Open voting for this position?' : 'Close voting for this position?',
+        opening
+          ? 'Voters will be able to access the ballot for “' + position.title + '”. You can close it later, but candidates will be locked.'
+          : 'Voting for “' + position.title + '” will end. This cannot be undone, and results can then be reviewed.',
+        opening ? 'Open voting' : 'Close voting'
+      );
+      if (!confirmed) return;
+      try {
+        await call('/api/admin/positions/' + position.id + '/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: next })
+        });
+        note($('msgPos'), 'Voting for “' + position.title + '” is now ' + (opening ? 'open.' : 'closed.'), 'ok');
+        await Promise.all([loadElection(), loadResults()]);
+      } catch (e) { note($('msgPos'), e.message, 'err'); }
+    }
+
+    async function publishPosition(position) {
+      const confirmed = await confirmAction(
+        'Publish these results?',
+        'The final results for “' + position.title + '” will become visible to voters. Publishing cannot be undone.',
+        'Publish results'
+      );
+      if (!confirmed) return;
+      try {
+        await call('/api/admin/positions/' + position.id + '/results/publish', { method: 'POST' });
+        note($('msgPos'), 'Results for “' + position.title + '” have been published.', 'ok');
+        await Promise.all([loadElection(), loadResults()]);
+      } catch (e) { note($('msgPos'), e.message, 'err'); }
+    }
+
+    async function loadResults() {
+      const box = $('results');
+      box.replaceChildren();
+      try {
+        const r = await call('/api/admin/results');
+        const closed = r.positions.filter(position => position.status === 'closed');
+        $('resHelp').textContent = 'Totals are available to administrators after each position closes. Voters see results only after you publish that position.';
+        if (!closed.length) {
+          box.appendChild(el('p', 'admin-empty', 'No positions have closed yet.'));
+          return;
+        }
+        closed.forEach(position => {
+          const card = el('article', 'admin-result-card');
+          const heading = el('div', 'admin-result-heading');
+          heading.append(el('h3', '', position.title), el('span', 'position-state closed', position.published ? 'Published' : 'Closed'));
+          card.appendChild(heading);
+          const table = el('table', 'rtable');
+          const body = document.createElement('tbody');
+          position.candidates.forEach(candidate => {
+            const tr = document.createElement('tr');
+            tr.append(el('td', '', candidate.name), el('td', '', candidate.votes + (candidate.votes === 1 ? ' vote' : ' votes')));
+            body.appendChild(tr);
+          });
+          table.appendChild(body);
+          card.appendChild(table);
+          if (position.publishedAt) {
+            card.appendChild(el('p', 'admin-result-meta', 'Published ' + new Date(position.publishedAt).toLocaleString()));
+          }
+          if (position.hash) card.appendChild(el('p', 'admin-result-hash', 'Integrity check: ' + position.hash));
+          box.appendChild(card);
+        });
+      } catch (e) { note($('msgRes'), e.message, 'err'); }
+    }
+
+    let lastAuditId = 0;
+    $('loadAudit').addEventListener('click', async () => {
+      $('loadAudit').disabled = true;
+      try {
+        const response = await call('/api/admin/audit?afterId=' + lastAuditId);
+        const entries = response.entries || [];
+        if (!entries.length && lastAuditId === 0) {
+          $('auditEntries').replaceChildren(el('p', 'admin-empty', 'No audit entries are available.'));
+        }
+        entries.forEach(entry => {
+          const card = el('article', 'admin-result-card');
+          card.append(
+            el('h3', '', '#' + entry.id + ' · ' + entry.eventType),
+            el('p', 'admin-result-meta', new Date(entry.createdAt).toLocaleString() + ' · ' + entry.actor),
+            el('p', 'admin-result-meta', entry.details),
+            el('p', 'admin-result-hash', 'Previous hash: ' + entry.previousHash),
+            el('p', 'admin-result-hash', 'Entry hash: ' + entry.entryHash)
+          );
+          $('auditEntries').appendChild(card);
+          lastAuditId = entry.id;
+        });
+        note($('msgAudit'), entries.length ? 'Loaded ' + entries.length + ' audit entries.' : 'No more audit entries.', 'ok');
+      } catch (error) {
+        note($('msgAudit'), error.message, 'err');
+      } finally {
+        $('loadAudit').disabled = false;
+      }
+    });
+
+    loadStats(); loadElection(); loadResults();
+  </script>
+</body>
+
+</html>

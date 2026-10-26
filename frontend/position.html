@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UR Student Voting - Position</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="session-guard.js"></script>
+</head>
+
+<body class="position-admin-page">
+    <main class="wide position-page-shell">
+        <div class="card top position-page-header">
+            <div>
+                <h1 id="title">Position</h1>
+                <p class="sub" style="margin:0"><span id="status" class="badge setup">SETUP</span> <span
+                        id="count"></span></p>
+                <p class="position-countdown" id="votingCountdown"></p>
+            </div>
+            <div class="position-header-actions">
+                <button type="button" class="back-button" id="back" data-back-button aria-label="Back">Back</button>
+                <button class="link" id="logout">Sign out</button>
+            </div>
+        </div>
+        <section class="card position-management">
+            <p class="sub" id="entryStatus" style="margin-top:0"></p>
+            <div class="position-management-actions">
+                <button type="button" id="add" style="display:none">Set deadline / add candidate</button>
+                <button type="button" class="link" id="closeEntry" style="display:none">Close candidate entry</button>
+            </div>
+            <div id="msg" class="msg"></div>
+            <div id="editBox" class="position-edit-box" style="display:none">
+                <h2>Update candidate</h2>
+                <label for="eName">Name</label>
+                <input type="text" id="eName" maxlength="100">
+                <label for="ePhoto">New photo (optional)</label>
+                <input type="file" id="ePhoto" accept="image/jpeg,image/png,image/webp">
+                <div class="position-edit-actions">
+                    <button type="button" id="save">Save changes</button>
+                    <button type="button" class="link" id="cancel">Cancel</button>
+                </div>
+            </div>
+            <div id="list" class="candidate-list position-candidate-list"></div>
+        </section>
+    </main>
+    <script src="back.js"></script>
+    <script>
+        const role = sessionStorage.getItem('role');
+        if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
+        const id = Number(new URLSearchParams(location.search).get('id'));
+        const $ = x => document.getElementById(x);
+        let pos = null, editing = null;
+        function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+        function show(text, type) { $('msg').textContent = text; $('msg').className = 'msg ' + type; }
+        async function signOut() {
+            try {
+                const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+                if (!response.ok) throw new Error('The server did not confirm sign-out.');
+                sessionStorage.clear();
+                window.location.replace('/');
+            } catch (error) {
+                console.error('Sign-out failed:', error);
+                window.alert('Sign-out could not be completed. Check your connection and try again.');
+            }
+        }
+        $('logout').addEventListener('click', signOut);
+        async function call(url, o) {
+            o = o || {};
+            const res = await fetch(url, Object.assign({}, o, { credentials: 'same-origin' }));
+            if (res.status === 401) { signOut(); throw new Error('Session expired'); }
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.message || 'Request failed');
+            return d;
+        }
+        async function load() {
+            try {
+                const d = await call('/api/admin/candidates');
+                pos = d.positions.find(p => p.id === id);
+                if (!pos) return show('Position not found.', 'err');
+                $('status').textContent = pos.status.toUpperCase();
+                $('status').className = 'badge ' + pos.status;
+                const entryOpen = !pos.candidateEntryClosed;
+                const editable = role === 'admin' && pos.canEditCandidates;
+                $('title').textContent = pos.title + (pos.campus ? ' — ' + pos.campus : '');
+                $('count').textContent = pos.candidates.length + (pos.candidates.length === 1 ? ' candidate' : ' candidates');
+                updateVotingCountdown();
+                $('entryStatus').textContent = pos.candidateEntryClosed
+                    ? pos.status === 'closed'
+                        ? 'Voting is closed; no more candidates can be added.'
+                        : pos.votingStartReached
+                            ? 'The scheduled voting start time has arrived; candidate details are locked.'
+                            : 'Candidate entry is closed. Existing candidates can still be updated before voting starts.'
+                    : pos.candidateEntryDeadline
+                        ? 'Candidate entry is open until ' + pos.candidateEntryDeadline.replace('T', ' ') + '. Existing candidates can be updated until voting starts.'
+                        : 'Set a candidate-entry deadline before adding candidates.';
+                $('add').style.display = role === 'admin' && entryOpen ? '' : 'none';
+                $('add').textContent = pos.candidateEntryDeadline ? 'Add candidate' : 'Set deadline / add candidate';
+                $('closeEntry').style.display = role === 'admin' && entryOpen ? '' : 'none';
+                const list = $('list'); list.replaceChildren();
+                if (!pos.candidates.length) {
+                    list.appendChild(el('p', 'position-empty',
+                        pos.candidateEntryClosed ? 'No candidates are currently listed for this position.' : 'No candidates yet. Candidate entry is still available.'));
+                }
+                pos.candidates.forEach(c => {
+                    const card = el('article', 'candidate-card');
+                    const img = document.createElement('img'); img.src = c.imageUrl; img.alt = 'Photo of ' + c.name;
+                    card.append(img, el('h4', '', c.name), el('small', '', c.regNumber || 'No registration number'));
+                    if (editable) {
+                        const actions = el('div', 'candidate-actions');
+                        const up = el('button', 'ghost', 'Edit candidate');
+                        up.type = 'button';
+                        up.addEventListener('click', () => {
+                            editing = c;
+                            $('eName').value = c.name;
+                            $('ePhoto').value = '';
+                            $('editBox').style.display = 'block';
+                            $('eName').focus();
+                        });
+                        const del = el('button', 'danger', 'Delete candidate');
+                        del.type = 'button';
+                        del.addEventListener('click', async () => {
+                            if (!confirm('Delete ' + c.name + ' from ' + pos.title + '? This cannot be undone.')) return;
+                            del.disabled = true;
+                            try {
+                                await call('/api/admin/candidates/' + c.id, { method: 'DELETE' });
+                                await load();
+                            } catch (e) {
+                                del.disabled = false;
+                                show(e.message, 'err');
+                            }
+                        });
+                        actions.append(up, del);
+                        card.appendChild(actions);
+                    }
+                    list.appendChild(card);
+                });
+            } catch (e) { show(e.message, 'err'); }
+        }
+        function updateVotingCountdown() {
+            if (!pos || !pos.votingStartsAt) {
+                $('votingCountdown').textContent = 'Voting start date has not been set.';
+                return;
+            }
+            if (pos.status === 'open') {
+                const remaining = pos.votingEndsAt ? new Date(pos.votingEndsAt).getTime() - Date.now() : NaN;
+                $('votingCountdown').textContent = Number.isFinite(remaining) && remaining > 0
+                    ? 'Voting closes at ' + pos.votingEndsAt.replace('T', ' ') + ' Kigali time.'
+                    : 'Voting is closing at its scheduled end time.';
+                return;
+            }
+            if (pos.status === 'closed') {
+                $('votingCountdown').textContent = 'Voting is closed for this position.';
+                return;
+            }
+            const remaining = new Date(pos.votingStartsAt).getTime() - Date.now();
+            if (remaining <= 0) {
+                $('votingCountdown').textContent = 'Scheduled start reached. Open voting manually from Election control.';
+                return;
+            }
+            const totalSeconds = Math.floor(remaining / 1000);
+            const days = Math.floor(totalSeconds / 86400);
+            const hours = Math.floor((totalSeconds % 86400) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            $('votingCountdown').textContent = 'Voting starts in ' + days + ' days, ' + hours + ' hours, '
+                + minutes + ' minutes, ' + seconds + ' seconds.';
+        }
+        setInterval(updateVotingCountdown, 1000);
+        $('add').addEventListener('click', () => {
+            if (confirm('Add a new candidate to ' + pos.title + '?')) {
+                const campus = pos.campus ? '&campus=' + encodeURIComponent(pos.campus) : '';
+                window.location.href = 'candidate.html?position=' + encodeURIComponent(pos.title) + campus;
+            }
+        });
+        $('closeEntry').addEventListener('click', async () => {
+            if (!confirm('Close candidate entry for ' + pos.title + '? No more candidates can be added. Existing candidates can still be updated before voting starts.')) return;
+            try {
+                await call('/api/admin/positions/' + pos.id + '/candidate-entry/close', { method: 'POST' });
+                show('Candidate entry closed for ' + pos.title + '. Voting status is unchanged.', 'ok');
+                await load();
+            } catch (e) { show(e.message, 'err'); }
+        });
+        $('cancel').addEventListener('click', () => { editing = null; $('editBox').style.display = 'none'; });
+        $('save').addEventListener('click', async () => {
+            const name = $('eName').value.trim(), file = $('ePhoto').files[0];
+            if (!name) return show('Enter the candidate name.', 'err');
+            if (file && (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024)) return show('Photo must be JPEG, PNG or WebP, 5 MB or smaller.', 'err');
+            if (!confirm('Save changes to ' + editing.name + '?')) return;
+            const headers = { 'X-Candidate-Name': encodeURIComponent(name) };
+            if (file) headers['Content-Type'] = file.type;
+            try {
+                await call('/api/admin/candidates/' + editing.id, { method: 'PUT', headers, body: file || undefined });
+                editing = null; $('editBox').style.display = 'none'; show('Candidate updated.', 'ok'); load();
+            } catch (e) { show(e.message, 'err'); }
+        });
+        load();
+    </script>
+</body>
+
+</html>
