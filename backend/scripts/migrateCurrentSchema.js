@@ -27,7 +27,7 @@ async function ensureIndex(table, name, columns, unique = false) {
 }
 
 async function main() {
-    for (const table of ['students', 'positions', 'candidates']) {
+    for (const table of ['students', 'positions', 'candidates', 'votes']) {
         if (!(await hasTable(table))) throw new Error(`Required table "${table}" is missing. Import schema.sql first.`);
     }
     const [existingPositionColumns] = await pool.query('SHOW COLUMNS FROM positions');
@@ -50,6 +50,21 @@ async function main() {
     await ensureColumn('students', 'password_hash', 'VARCHAR(255) NULL');
     await ensureColumn('students', 'failed_attempts', 'INT UNSIGNED NOT NULL DEFAULT 0');
     await ensureColumn('students', 'locked_until', 'DATETIME NULL');
+    for (const column of ['reg_number', 'contact_email']) {
+        const [[duplicates]] = await pool.query(
+            `SELECT COUNT(*) AS count FROM (
+                SELECT \`${column}\`
+                FROM students
+                GROUP BY \`${column}\`
+                HAVING COUNT(*) > 1
+            ) AS duplicate_accounts`
+        );
+        if (Number(duplicates.count)) {
+            throw new Error(`Duplicate students.${column} values exist. Resolve them before enforcing account uniqueness.`);
+        }
+    }
+    await ensureIndex('students', 'uq_students_reg_number', ['reg_number'], true);
+    await ensureIndex('students', 'uq_students_email', ['contact_email'], true);
 
     await ensureColumn('positions', 'campus', "VARCHAR(50) NOT NULL DEFAULT ''");
     await pool.query("UPDATE positions SET campus = '' WHERE campus IS NULL");
@@ -87,12 +102,40 @@ async function main() {
 
     const [[studentId]] = await pool.query('SHOW COLUMNS FROM students LIKE "id"');
     if (!studentId || !studentId.Type) throw new Error('Could not determine the students.id database type.');
+    await pool.query(`CREATE TABLE IF NOT EXISTS voter_accounts (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        reg_number VARCHAR(20) NOT NULL,
+        full_name VARCHAR(100) NOT NULL,
+        email VARCHAR(150) NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        failed_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+        locked_until DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_voter_accounts_reg_number (reg_number),
+        UNIQUE KEY uq_voter_accounts_email (email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await pool.query(`INSERT IGNORE INTO voter_accounts
+        (reg_number, full_name, email, password_hash, failed_attempts, locked_until)
+        SELECT reg_number, full_name, contact_email, password_hash, failed_attempts, locked_until
+        FROM students
+        WHERE role = 'voter' AND is_activated = 1 AND password_hash IS NOT NULL`);
+    if (await hasTable('voter_registration_requests')) {
+        const [requestColumns] = await pool.query('SHOW COLUMNS FROM voter_registration_requests');
+        if (requestColumns.some(column => column.Field === 'password_hash')) {
+            await pool.query(`INSERT IGNORE INTO voter_accounts (reg_number, full_name, email, password_hash)
+                SELECT s.reg_number, r.requested_full_name, r.requested_email, r.password_hash
+                FROM voter_registration_requests r
+                JOIN students s ON s.id = r.student_id
+                WHERE r.status = 'pending' AND r.password_hash IS NOT NULL`);
+            await pool.query('ALTER TABLE voter_registration_requests MODIFY password_hash VARCHAR(255) NULL');
+            await pool.query('UPDATE voter_registration_requests SET password_hash = NULL');
+        }
+    }
     await pool.query(`CREATE TABLE IF NOT EXISTS voter_receipts (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         student_id ${studentId.Type} NOT NULL,
         position_id INT NOT NULL,
         receipt_hash CHAR(64) NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_voter_receipt_student_position (student_id, position_id),
         UNIQUE KEY uq_voter_receipt_hash (receipt_hash),
         KEY idx_voter_receipts_position (position_id),

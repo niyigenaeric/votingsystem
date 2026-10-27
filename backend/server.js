@@ -65,7 +65,7 @@ app.use(cors({ origin: false }));
 app.use(express.json({ limit: '100kb' }));
 
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/auth', require('./routes/activation'));
+app.use('/api/auth', require('./routes/registration'));
 app.use('/api/admin', require('./routes/adminVoters'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin', require('./routes/candidates'));
@@ -119,7 +119,7 @@ app.get('/admin.html', requirePageRole('admin', 'auditor'), (req, res, next) => 
 app.get('/candidate.html', requirePageRole('admin'), (req, res, next) => serveHtml('candidate.html', req, res, next));
 app.get('/position.html', requirePageRole('admin', 'auditor'), (req, res, next) => serveHtml('position.html', req, res, next));
 app.get('/vote.html', requirePageRole('voter'), (req, res, next) => serveHtml('vote.html', req, res, next));
-app.get(['/index.html', '/activate.html'], (req, res, next) => serveHtml(req.path, req, res, next));
+app.get(['/index.html', '/activate.html', '/voter-login.html', '/voter-register.html'], (req, res, next) => serveHtml(req.path, req, res, next));
 app.use(express.static(frontendDir));
 
 const port = Number(process.env.PORT || 5000);

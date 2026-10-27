@@ -8,6 +8,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "db:migrate": "node scripts/migrateCurrentSchema.js",
+    "db:migrate-anonymity": "node scripts/migrateVoteAnonymity.js",
     "db:verify-audit": "node scripts/verifyAuditChain.js",
     "db:check-grants": "node scripts/checkDatabaseGrants.js",
     "test": "node --test"

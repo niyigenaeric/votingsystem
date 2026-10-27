@@ -22,6 +22,20 @@ CREATE TABLE IF NOT EXISTS students (
   KEY idx_students_campus_role (campus, role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS voter_accounts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  reg_number VARCHAR(20) NOT NULL,
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  failed_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  locked_until DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_voter_accounts_reg_number (reg_number),
+  UNIQUE KEY uq_voter_accounts_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS positions (
   id INT NOT NULL AUTO_INCREMENT,
   title VARCHAR(100) NOT NULL,
@@ -56,10 +70,9 @@ CREATE TABLE IF NOT EXISTS candidates (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS votes (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id CHAR(32) NOT NULL,
   position_id INT NOT NULL,
   candidate_id BIGINT UNSIGNED NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_votes_position_candidate (position_id, candidate_id),
   CONSTRAINT fk_votes_position FOREIGN KEY (position_id) REFERENCES positions(id)
@@ -73,7 +86,6 @@ CREATE TABLE IF NOT EXISTS voter_receipts (
   student_id INT UNSIGNED NOT NULL,
   position_id INT NOT NULL,
   receipt_hash CHAR(64) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_voter_receipt_student_position (student_id, position_id),
   UNIQUE KEY uq_voter_receipt_hash (receipt_hash),

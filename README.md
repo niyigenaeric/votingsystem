@@ -20,8 +20,11 @@ Student and administrator one-time codes require SMTP in production. In developm
 
 - Schedule form values are Rwanda local time (`Africa/Kigali`, UTC+02:00); the server stores and compares schedule dates in UTC.
 - An administrator must open a position after its scheduled start. An open position is automatically closed at its scheduled end; administrators may close it sooner.
-- Students need an assigned campus and may cast one ballot for each eligible position. The candidate choice is stored in `votes`; the separate `voter_receipts` row prevents repeat voting without linking the choice to the voter.
+- Anyone may create a voter account using a unique registration number, full name, email, and password. At sign-in, users enter all four credentials; the registration number, normalized full name, and email must match the official voter roster before the server creates a voter session. Unmatched accounts cannot access voting. Existing activated voter accounts are copied into the voter-account table during `npm run db:migrate`.
+- Roster matching checks that submitted details correspond to an eligible record; it does not prove that the person entering them is the real student. Email ownership verification is not configured and no registration email is sent. A person who knows another voter's roster details could impersonate them, so use university SSO or a one-time code sent to the official email before relying on this for a real election.
+- Students need an assigned campus and may cast one ballot for each eligible position. The candidate choice is stored in `votes`; the separate `voter_receipts` row prevents repeat voting without a direct database link to the choice. Votes carry a random identifier and no timestamp, and receipts store no date, so a choice cannot be matched to a voter by time or order.
 - A receipt code is displayed once after a successful vote. The database stores only its SHA-256 hash.
+- This is not cryptographic ballot secrecy: a privileged operator with access to application/server logs or other timing information may still correlate voting activity. The receipt proves only that a vote was recorded for a position; it does not prove which candidate was selected.
 - Candidate images are stored under `UPLOAD_DIR` (the development default is `backend/uploads/candidates`). EXIF/IPTC, PNG text/time, and WebP EXIF/XMP metadata are removed before storage.
 
 ## Database privileges and audit checks
@@ -32,12 +35,15 @@ Use a database administrator account for schema changes. The application account
 GRANT SELECT, INSERT ON voting_system.votes TO 'voting_app'@'localhost';
 GRANT SELECT, INSERT ON voting_system.voter_receipts TO 'voting_app'@'localhost';
 GRANT SELECT, INSERT ON voting_system.audit_log TO 'voting_app'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON voting_system.voter_accounts TO 'voting_app'@'localhost';
 SHOW GRANTS FOR 'voting_app'@'localhost';
 ```
 
-If broader privileges were granted previously, revoke them before applying these table grants. Run `npm run db:check-grants` from `backend` using the application's database account; it fails if the protected tables lack read/insert grants or if broad/update/delete privileges are present.
+If broader privileges were granted previously, revoke them before applying these table grants. Run `npm run db:check-grants` from `backend` using the application's database account; it verifies read/insert access for votes, receipts, and audit entries, the read/insert/update access voter sign-in needs on `voter_accounts`, and fails for unsafe broad or protected-table grants.
 
 Run `npm run db:verify-audit` from `backend` to recompute the entire audit hash chain. The auditor/admin interface also provides read-only, paginated audit entries.
+
+For an existing database, take and verify a backup before applying the vote-anonymity migration. From `backend`, run `npm run db:migrate-anonymity -- --confirm-backup`. The migration checks for triggers on the vote tables and stops if any are present; review and resolve those triggers before rerunning it.
 
 ## Production deployment
 

@@ -181,6 +181,7 @@
       $('dialogTitle').textContent = title;
       $('dialogMessage').textContent = message;
       $('dialogConfirm').textContent = actionLabel;
+      $('dialogConfirm').disabled = false;
       dialog.returnValue = '';
       dialog.showModal();
       return new Promise(resolve => {

@@ -52,6 +52,7 @@ label {
 }
 
 input[type=text],
+input[type=email],
 input[type=password],
 input[type=file],
 input[type=date],
@@ -61,6 +62,73 @@ input[type=time] {
   border: 1px solid #c5ced9;
   border-radius: 6px;
   font-size: 15px;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 48px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 6px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #5b6878;
+}
+
+.password-toggle:hover {
+  background: #eef3f8;
+  color: #1d2733;
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid #0b5fd6;
+  outline-offset: 1px;
+}
+
+.password-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.password-toggle .eye-off {
+  display: none;
+}
+
+.password-toggle[aria-pressed="true"] .eye {
+  display: none;
+}
+
+.password-toggle[aria-pressed="true"] .eye-off {
+  display: block;
+}
+
+.form-validation.was-validated input:invalid {
+  border-color: #c62828;
+  background-color: #fff8f8;
+}
+
+.form-validation.was-validated input:invalid:focus {
+  outline: 2px solid rgba(198, 40, 40, .2);
+  outline-offset: 1px;
 }
 
 .deadline-picker {

@@ -5,6 +5,7 @@ const { addAuditLog } = require('../db/audit');
 const { getTally } = require('../db/tally');
 const { closeExpiredPositions } = require('../db/election');
 const { voteRejection } = require('../db/votingRules');
+const { newVoteId } = require('../db/voteId');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -122,10 +123,17 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
             await connection.rollback();
             return res.status(rejection.status).json({ message: rejection.message });
         }
-        await connection.query(
-            'INSERT INTO votes (position_id, candidate_id) VALUES (?, ?)',
-            [positionId, candidateId]
-        );
+        for (let attempt = 1; ; attempt++) {
+            try {
+                await connection.query(
+                    'INSERT INTO votes (id, position_id, candidate_id) VALUES (?, ?, ?)',
+                    [newVoteId(), positionId, candidateId]
+                );
+                break;
+            } catch (insertError) {
+                if (insertError.code !== 'ER_DUP_ENTRY' || attempt >= 3) throw insertError;
+            }
+        }
         await connection.query(
             'INSERT INTO voter_receipts (student_id, position_id, receipt_hash) VALUES (?, ?, ?)',
             [req.user.id, positionId, receiptHash]

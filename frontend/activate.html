@@ -4,89 +4,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>UR Student Voting - Activate account</title>
+    <title>UR Student Voting - Create voter account</title>
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
     <div class="wrap">
         <div class="card">
-            <button type="button" class="back-button" data-back-button aria-label="Back">Back</button>
-            <h1>Activate your account</h1>
-            <p class="sub">Use the registration number on the official voter list. A code will be sent to your
-                registered email.</p>
-
-            <div id="step1">
-                <label for="reg">Registration number</label>
-                <input type="text" id="reg" maxlength="9" inputmode="numeric" autocomplete="username"
-                    placeholder="223007576">
-                <button id="send">Send code</button>
-            </div>
-
-            <div id="step2" style="display:none">
-                <label for="code">6-digit code</label>
-                <input type="text" id="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
-                <label for="pw">Choose a password</label>
-                <input type="password" id="pw" maxlength="72" autocomplete="new-password">
-                <label for="pw2">Repeat the password</label>
-                <input type="password" id="pw2" maxlength="72" autocomplete="new-password">
-                <p class="sub" style="margin-top:8px">At least 10 characters, with a letter and a number.</p>
-                <button id="confirm">Activate account</button>
-                <button class="link" id="again" style="margin-left:12px">Send a new code</button>
-            </div>
-
-            <div id="msg" class="msg"></div>
-            <p class="sub" style="margin:16px 0 0"><a href="index.html">Back to sign in</a></p>
+            <h1>Create a voter account</h1>
+            <p class="sub">Create an account first. Voter-list eligibility is checked when you sign in.</p>
+            <p><a href="voter-register.html">Create a voter account</a></p>
+            <p class="sub" style="margin:16px 0 0"><a href="voter-login.html">Back to voter sign in</a></p>
         </div>
     </div>
-
-    <script src="back.js"></script>
-    <script>
-        const $ = id => document.getElementById(id);
-        function show(text, type) { $('msg').textContent = text; $('msg').className = 'msg ' + type; }
-
-        async function post(url, body) {
-            const res = await fetch(url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.message || 'Request failed');
-            return data;
-        }
-
-        async function sendCode() {
-            const regNumber = $('reg').value.trim();
-            if (!/^22[2-5]0[0-9]{5}$/.test(regNumber)) return show('Enter your registration number, for example 223007576.', 'err');
-            $('send').disabled = true;
-            try {
-                const d = await post('/api/auth/activate/request', { regNumber });
-                $('step1').style.display = 'none';
-                $('step2').style.display = 'block';
-                show(d.message, 'ok');
-                $('code').focus();
-            } catch (e) { show(e.message, 'err'); }
-            finally { $('send').disabled = false; }
-        }
-
-        $('send').addEventListener('click', sendCode);
-        $('again').addEventListener('click', sendCode);
-
-        $('confirm').addEventListener('click', async () => {
-            const code = $('code').value.trim();
-            const password = $('pw').value;
-            if (!/^\d{6}$/.test(code)) return show('Enter the 6-digit code.', 'err');
-            if (password !== $('pw2').value) return show('The two passwords do not match.', 'err');
-            $('confirm').disabled = true;
-            try {
-                const d = await post('/api/auth/activate/confirm', { regNumber: $('reg').value.trim(), code, password });
-                show(d.message + ' Redirecting...', 'ok');
-                setTimeout(() => { window.location.href = 'index.html'; }, 2000);
-            } catch (e) { show(e.message, 'err'); $('confirm').disabled = false; }
-        });
-    </script>
 </body>
 
 </html>

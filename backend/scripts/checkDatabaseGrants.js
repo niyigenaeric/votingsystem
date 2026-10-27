@@ -9,6 +9,7 @@ async function main() {
     const database = String(process.env.DB_NAME || '').replace(/`/g, '``');
     if (!database) throw new Error('DB_NAME is required to evaluate the current grants.');
     const restrictedTables = ['votes', 'voter_receipts', 'audit_log'];
+    const voterAccountTable = 'voter_accounts';
     const forbidden = /\b(?:ALL PRIVILEGES|UPDATE|DELETE|ALTER|DROP)\b/i;
     const normalizedGrants = grants.map(grant => {
         const normalized = grant.replace(/`/g, '').toLowerCase();
@@ -27,6 +28,12 @@ async function main() {
         restrictedTables.some(table => grant.scope === `${database.toLowerCase()}.${table}`)
             && forbidden.test(grant.privileges)
     );
+    const voterAccountUnsafeGrant = normalizedGrants.find(grant =>
+        ((grant.scope === '*.*' || grant.scope === `${database.toLowerCase()}.*`)
+            && forbidden.test(grant.privileges))
+        || (grant.scope === `${database.toLowerCase()}.${voterAccountTable}`
+            && /\b(?:ALL PRIVILEGES|DELETE|ALTER|DROP)\b/i.test(grant.privileges))
+    );
     const missingPermissions = [];
     for (const table of restrictedTables) {
         const relevant = normalizedGrants.filter(grant =>
@@ -41,7 +48,18 @@ async function main() {
             }
         }
     }
-    if (broadGrant || tableWriteGrants.length) {
+    const voterAccountGrants = normalizedGrants.filter(grant =>
+        grant.scope === '*.*'
+        || grant.scope === `${database.toLowerCase()}.*`
+        || grant.scope === `${database.toLowerCase()}.${voterAccountTable}`
+    );
+    for (const privilege of ['SELECT', 'INSERT', 'UPDATE']) {
+        if (!voterAccountGrants.some(grant => /\bALL PRIVILEGES\b/i.test(grant.privileges)
+            || new RegExp(`\\b${privilege}\\b`, 'i').test(grant.privileges))) {
+            missingPermissions.push(`${voterAccountTable}: ${privilege}`);
+        }
+    }
+    if (broadGrant || tableWriteGrants.length || voterAccountUnsafeGrant) {
         console.error('FAIL: this database account can modify a protected vote/receipt/audit table.');
         process.exitCode = 1;
         return;
@@ -53,6 +71,7 @@ async function main() {
     }
     console.log('No UPDATE, DELETE, ALTER, or DROP grant was found for the protected tables.');
     console.log('The protected tables have SELECT and INSERT privileges only.');
+    console.log('voter_accounts has the SELECT, INSERT, and UPDATE privileges required by voter sign-in.');
 }
 
 main()

@@ -7,6 +7,7 @@ const pool = require('../db/connection');
 const { addAuditLog } = require('../db/audit');
 const { sendCode } = require('../db/mailer');
 const { verifyToken } = require('../middleware/auth');
+const { matchesOfficialVoterList, matchesVoterAccount } = require('../db/voterEligibility');
 
 const router = express.Router();
 const SESSION_COOKIE = 'voting_session';
@@ -47,6 +48,73 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
 
         const registrationNumber = regNumber.trim();
+        const [voterAccounts] = await pool.query(
+            `SELECT *, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
+             FROM voter_accounts WHERE reg_number = ?`,
+            [registrationNumber]
+        );
+        const voterAccount = voterAccounts[0];
+        if (voterAccount) {
+            const fullName = typeof req.body.fullName === 'string'
+                ? req.body.fullName.trim().replace(/\s+/g, ' ')
+                : '';
+            const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+            if (!fullName || !email) {
+                return res.status(400).json({ message: 'Registration number, full name, email, and password are required.' });
+            }
+            const passwordOk = await bcrypt.compare(password, voterAccount.password_hash);
+            if (voterAccount.is_locked) {
+                await addAuditLog('LOGIN_BLOCKED', registrationNumber, 'Voter account locked');
+                return res.status(423).json({ message: 'Account temporarily locked. Try again later.' });
+            }
+            if (!passwordOk) {
+                await pool.query(
+                    `UPDATE voter_accounts
+                     SET failed_attempts = failed_attempts + 1,
+                         locked_until = IF(failed_attempts + 1 >= ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), locked_until)
+                     WHERE id = ?`,
+                    [MAX_ATTEMPTS, LOCK_MINUTES, voterAccount.id]
+                );
+                await addAuditLog('LOGIN_FAILED', registrationNumber, 'Wrong voter-account password');
+                return res.status(401).json({ message: 'Invalid credentials' });
+            }
+            if (!matchesVoterAccount(voterAccount, { fullName, email })) {
+                await addAuditLog('LOGIN_FAILED', registrationNumber, 'Voter account details did not match');
+                return res.status(401).json({ message: 'Invalid credentials' });
+            }
+
+            const [eligibleRows] = await pool.query(
+                `SELECT id, reg_number, full_name, contact_email, campus, role
+                 FROM students WHERE reg_number = ? AND role = 'voter'`,
+                [registrationNumber]
+            );
+            const eligibleVoter = eligibleRows[0];
+            const detailsMatch = matchesOfficialVoterList(voterAccount, eligibleVoter);
+            if (!detailsMatch) {
+                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, 'Account details do not match the official voter list');
+                return res.status(403).json({
+                    message: 'Account credentials are valid, but the name, email, and registration number do not match an eligible voter-list entry. Contact an election administrator if you believe this is an error.'
+                });
+            }
+            if (!eligibleVoter.campus) {
+                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, 'Eligible voter has no assigned campus');
+                return res.status(403).json({
+                    message: 'Your voter-list record has no campus assigned. Contact an election administrator before signing in to vote.'
+                });
+            }
+
+            await pool.query(
+                `UPDATE voter_accounts SET failed_attempts = 0, locked_until = NULL WHERE id = ?`,
+                [voterAccount.id]
+            );
+            await pool.query(
+                `UPDATE students SET is_activated = 1, failed_attempts = 0, locked_until = NULL WHERE id = ?`,
+                [eligibleVoter.id]
+            );
+            await addAuditLog('LOGIN_SUCCESS', registrationNumber, 'Role voter; official voter-list details matched');
+            return issueSession(eligibleVoter, res);
+        }
+
         const [rows] = await pool.query(
             `SELECT *, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
              FROM students WHERE reg_number = ?`,
@@ -69,7 +137,7 @@ router.post('/login', loginLimiter, async (req, res) => {
             await pool.query(
                 `UPDATE students
                  SET failed_attempts = failed_attempts + 1,
-                     locked_until = IF(failed_attempts >= ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), locked_until)
+                     locked_until = IF(failed_attempts + 1 >= ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), locked_until)
                  WHERE id = ?`,
                 [MAX_ATTEMPTS, LOCK_MINUTES, student.id]
             );
