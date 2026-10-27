@@ -6,6 +6,7 @@ const { getTally } = require('../db/tally');
 const { closeExpiredPositions } = require('../db/election');
 const { voteRejection } = require('../db/votingRules');
 const { newVoteId } = require('../db/voteId');
+const { getVoterEligibility } = require('../db/voterEligibility');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -13,14 +14,26 @@ const router = express.Router();
 router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
     try {
         await closeExpiredPositions();
-        const [[me]] = await pool.query('SELECT campus, is_activated FROM students WHERE id = ?', [req.user.id]);
-        if (!me || !me.is_activated) return res.status(403).json({ message: 'An activated voter account is required.' });
-        if (!me.campus) return res.status(403).json({ message: 'Your campus is not set. Contact an election administrator before voting.' });
-
-        const [receipts] = await pool.query(
-            'SELECT position_id FROM voter_receipts WHERE student_id = ?',
-            [req.user.id]
+        const [[account]] = await pool.query(
+            'SELECT reg_number, full_name, email FROM voter_accounts WHERE reg_number = ?',
+            [req.user.regNumber]
         );
+        if (!account) return res.status(403).json({ message: 'The voter account for this session no longer exists.' });
+        const [[student]] = await pool.query(
+            `SELECT id, reg_number, full_name, contact_email, campus, is_activated
+             FROM students WHERE reg_number = ? AND role = 'voter'`,
+            [account.reg_number]
+        );
+        const eligibility = getVoterEligibility(account, student);
+        const eligible = eligibility.eligible && !!student.is_activated;
+        const eligibilityMessage = eligible
+            ? eligibility.message
+            : eligibility.eligible
+                ? 'You are not allowed to vote because your voter account is not activated.'
+                : eligibility.message;
+        const [receipts] = eligible
+            ? await pool.query('SELECT position_id FROM voter_receipts WHERE student_id = ?', [student.id])
+            : [[]];
         const votedPositionIds = receipts.map(receipt => Number(receipt.position_id));
         const tally = await getTally();
         const [positions] = await pool.query(
@@ -31,11 +44,13 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
         const positionById = new Map(positions.map(position => [Number(position.id), position]));
         const visiblePositions = tally.positions.filter(position => {
             const schedule = positionById.get(Number(position.id));
-            return schedule && (!schedule.campus || schedule.campus === me.campus);
+            return schedule && (!student || !student.campus || !schedule.campus || schedule.campus === student.campus);
         });
         const [images] = await pool.query('SELECT id, image_path FROM candidates');
         const imageById = new Map(images.map(candidate => [String(candidate.id), candidate.image_path]));
         res.json({
+            allowedToVote: eligible,
+            eligibilityMessage,
             positions: visiblePositions.map(position => {
                 const schedule = positionById.get(Number(position.id));
                 const candidates = position.status === 'closed' && position.published
@@ -85,9 +100,23 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
     try {
         await connection.beginTransaction();
         const [[student]] = await connection.query(
-            `SELECT campus, is_activated FROM students WHERE id = ? AND role = 'voter' FOR UPDATE`,
-            [req.user.id]
+            `SELECT id, reg_number, full_name, contact_email, campus, is_activated
+             FROM students WHERE reg_number = ? AND role = 'voter' FOR UPDATE`,
+            [req.user.regNumber]
         );
+        const [[account]] = await connection.query(
+            'SELECT reg_number, full_name, email FROM voter_accounts WHERE reg_number = ? FOR UPDATE',
+            [req.user.regNumber]
+        );
+        const eligibility = getVoterEligibility(account, student);
+        if (!eligibility.eligible) {
+            await connection.rollback();
+            return res.status(403).json({ message: eligibility.message });
+        }
+        if (!student.is_activated) {
+            await connection.rollback();
+            return res.status(403).json({ message: 'You are not allowed to vote because your voter account is not activated.' });
+        }
         const [[position]] = await connection.query(
             `SELECT id, title, campus, status,
                     (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS start_reached,
@@ -107,7 +136,7 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
         if (position) {
             const [receiptRows] = await connection.query(
                 'SELECT id FROM voter_receipts WHERE student_id = ? AND position_id = ?',
-                [req.user.id, positionId]
+                [student.id, positionId]
             );
             receipt = receiptRows[0];
         }
@@ -136,7 +165,7 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
         }
         await connection.query(
             'INSERT INTO voter_receipts (student_id, position_id, receipt_hash) VALUES (?, ?, ?)',
-            [req.user.id, positionId, receiptHash]
+            [student.id, positionId, receiptHash]
         );
         await connection.commit();
         committed = true;

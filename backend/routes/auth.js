@@ -7,7 +7,7 @@ const pool = require('../db/connection');
 const { addAuditLog } = require('../db/audit');
 const { sendCode } = require('../db/mailer');
 const { verifyToken } = require('../middleware/auth');
-const { matchesOfficialVoterList, matchesVoterAccount } = require('../db/voterEligibility');
+const { getVoterEligibility, matchesVoterAccount } = require('../db/voterEligibility');
 
 const router = express.Router();
 const SESSION_COOKIE = 'voting_session';
@@ -89,30 +89,23 @@ router.post('/login', loginLimiter, async (req, res) => {
                 [registrationNumber]
             );
             const eligibleVoter = eligibleRows[0];
-            const detailsMatch = matchesOfficialVoterList(voterAccount, eligibleVoter);
-            if (!detailsMatch) {
-                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, 'Account details do not match the official voter list');
-                return res.status(403).json({
-                    message: 'Account credentials are valid, but the name, email, and registration number do not match an eligible voter-list entry. Contact an election administrator if you believe this is an error.'
-                });
-            }
-            if (!eligibleVoter.campus) {
-                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, 'Eligible voter has no assigned campus');
-                return res.status(403).json({
-                    message: 'Your voter-list record has no campus assigned. Contact an election administrator before signing in to vote.'
-                });
+            const eligibility = getVoterEligibility(voterAccount, eligibleVoter);
+            if (!eligibility.eligible) {
+                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, eligibility.message);
             }
 
             await pool.query(
                 `UPDATE voter_accounts SET failed_attempts = 0, locked_until = NULL WHERE id = ?`,
                 [voterAccount.id]
             );
-            await pool.query(
-                `UPDATE students SET is_activated = 1, failed_attempts = 0, locked_until = NULL WHERE id = ?`,
-                [eligibleVoter.id]
-            );
-            await addAuditLog('LOGIN_SUCCESS', registrationNumber, 'Role voter; official voter-list details matched');
-            return issueSession(eligibleVoter, res);
+            if (eligibility.eligible) {
+                await pool.query(
+                    `UPDATE students SET is_activated = 1, failed_attempts = 0, locked_until = NULL WHERE id = ?`,
+                    [eligibleVoter.id]
+                );
+            }
+            await addAuditLog('LOGIN_SUCCESS', registrationNumber, 'Role voter; eligibility will be shown on the ballot');
+            return issueSession({ ...voterAccount, role: 'voter' }, res);
         }
 
         const [rows] = await pool.query(

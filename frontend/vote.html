@@ -18,6 +18,7 @@
             </div>
             <button class="link" id="logout">Sign out</button>
         </div>
+        <div id="eligibility" class="msg" role="status" aria-live="polite"></div>
         <div id="info" class="msg"></div>
         <div id="ballot"></div>
     </div>
@@ -51,7 +52,7 @@
                     body: JSON.stringify({ candidateId: candidate.id })
                 });
                 const data = await res.json().catch(() => ({}));
-                if (res.status === 401 || res.status === 403) return signOut();
+                if (res.status === 401) return signOut();
                 if (!res.ok) throw new Error(data.message || 'Could not record your vote.');
                 position.hasVoted = true;
                 const card = button.closest('.card');
@@ -68,7 +69,7 @@
                 button.disabled = false;
             }
         }
-        function renderPosition(position, results) {
+        function renderPosition(position, results, allowedToVote) {
             const card = el('div', 'card');
             card.appendChild(el('h2', '', position.title));
             if (position.votingEndsAt) card.appendChild(el('p', 'sub', 'Voting closes at ' + position.votingEndsAt.replace('T', ' ') + ' Kigali time.'));
@@ -88,10 +89,11 @@
                     img.alt = 'Photo of ' + candidate.name;
                     img.loading = 'lazy';
                     item.append(img, el('h4', '', candidate.name));
-                    const vote = el('button', 'admin-action', 'Vote for ' + candidate.name);
+                    const vote = el('button', 'admin-action', allowedToVote ? 'Vote for ' + candidate.name : 'Voting unavailable');
                     vote.type = 'button';
                     vote.dataset.vote = 'true';
-                    vote.addEventListener('click', () => castVote(position, candidate, vote));
+                    vote.disabled = !allowedToVote;
+                    if (allowedToVote) vote.addEventListener('click', () => castVote(position, candidate, vote));
                     item.appendChild(vote);
                     list.appendChild(item);
                 });
@@ -106,13 +108,16 @@
                 if (res.status === 401 || res.status === 403) return signOut();
                 const d = await res.json();
                 if (!res.ok) { info.textContent = d.message || 'Could not load the ballot.'; info.className = 'msg err'; return; }
-                sub.textContent = 'Vote once in each open position assigned to your campus.';
+                sub.textContent = 'Review the candidates and your voting eligibility below.';
+                const eligibility = document.getElementById('eligibility');
+                eligibility.textContent = d.eligibilityMessage;
+                eligibility.className = 'msg ' + (d.allowedToVote ? 'ok' : 'err');
                 const openPositions = d.positions.filter(position => position.status === 'open');
                 const publishedPositions = d.positions.filter(position => position.status === 'closed' && position.published);
                 const waitingPositions = d.positions.filter(position => position.status === 'setup');
                 const closedPositions = d.positions.filter(position => position.status === 'closed' && !position.published);
-                publishedPositions.forEach(position => renderPosition(position, true));
-                openPositions.forEach(position => renderPosition(position, false));
+                publishedPositions.forEach(position => renderPosition(position, true, d.allowedToVote));
+                openPositions.forEach(position => renderPosition(position, false, d.allowedToVote));
                 const messages = [];
                 const votedCount = d.positions.filter(position => position.hasVoted).length;
                 if (votedCount) messages.push('You have voted in ' + votedCount + (votedCount === 1 ? ' position.' : ' positions.'));
@@ -123,7 +128,11 @@
                     messages.push('No positions are currently open. Please check again later.');
                 }
                 if (publishedPositions.length) messages.unshift('Official results are available for the published positions above.');
-                notice(messages.join(' '));
+                if (d.allowedToVote) notice(messages.join(' '));
+                else {
+                    info.textContent = 'Candidate information is available below, but voting is disabled for this account.';
+                    info.className = 'msg';
+                }
             } catch { info.textContent = 'Cannot reach the server.'; info.className = 'msg err'; }
         })();
     </script>
