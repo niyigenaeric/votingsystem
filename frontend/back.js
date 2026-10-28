@@ -11,6 +11,9 @@ document.querySelectorAll('[data-back-button]').forEach(button => {
 
     if (previousPageIsLocal && window.history.length > 1) {
       window.history.back();
+      return;
     }
+
+    window.location.assign(button.dataset.backFallback || 'admin.html');
   });
 });

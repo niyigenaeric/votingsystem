@@ -70,6 +70,7 @@ app.use('/api/admin', require('./routes/adminVoters'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin', require('./routes/candidates'));
 app.use('/api/voter', require('./routes/voter'));
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/admin/audit', require('./routes/audit'));
 
 app.get('/api/health', async (req, res) => {

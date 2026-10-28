@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>UR Student Voting - Position</title>
     <link rel="stylesheet" href="style.css">
+    <script src="theme-toggle.js" defer></script>
     <script src="session-guard.js"></script>
 </head>
 
@@ -20,6 +21,21 @@
             </div>
             <div class="position-header-actions">
                 <button type="button" class="back-button" id="back" data-back-button aria-label="Back">Back</button>
+                <div class="notification-center" data-notification-center>
+                    <button class="notification-toggle" type="button" data-notification-toggle aria-expanded="false"
+                        aria-controls="notificationsPanel" aria-label="Election notifications">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path></svg>
+                        <span class="notification-count" data-notification-count hidden></span>
+                    </button>
+                    <section class="notification-panel" id="notificationsPanel" data-notification-panel hidden
+                        aria-labelledby="notificationHeading">
+                        <div class="notification-panel-heading">
+                            <h2 id="notificationHeading">Election notifications</h2>
+                            <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
+                        </div>
+                        <div data-notification-list role="status" aria-live="polite"></div>
+                    </section>
+                </div>
                 <button class="link" id="logout">Sign out</button>
             </div>
         </div>
@@ -34,6 +50,8 @@
                 <h2>Update candidate</h2>
                 <label for="eName">Name</label>
                 <input type="text" id="eName" maxlength="100">
+                <label for="eManifesto">Manifesto</label>
+                <textarea id="eManifesto" maxlength="10000" rows="8"></textarea>
                 <label for="ePhoto">New photo (optional)</label>
                 <input type="file" id="ePhoto" accept="image/jpeg,image/png,image/webp">
                 <div class="position-edit-actions">
@@ -44,7 +62,12 @@
             <div id="list" class="candidate-list position-candidate-list"></div>
         </section>
     </main>
+    <footer class="app-footer">
+        <span>University of Rwanda Student Elections</span>
+        <span>Election information and voter services</span>
+    </footer>
     <script src="back.js"></script>
+    <script src="notifications.js"></script>
     <script>
         const role = sessionStorage.getItem('role');
         if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
@@ -78,14 +101,16 @@
                 const d = await call('/api/admin/candidates');
                 pos = d.positions.find(p => p.id === id);
                 if (!pos) return show('Position not found.', 'err');
-                $('status').textContent = pos.status.toUpperCase();
+                $('status').textContent = pos.archived ? 'ARCHIVED' : pos.status.toUpperCase();
                 $('status').className = 'badge ' + pos.status;
                 const entryOpen = !pos.candidateEntryClosed;
                 const editable = role === 'admin' && pos.canEditCandidates;
                 $('title').textContent = pos.title + (pos.campus ? ' — ' + pos.campus : '');
                 $('count').textContent = pos.candidates.length + (pos.candidates.length === 1 ? ' candidate' : ' candidates');
                 updateVotingCountdown();
-                $('entryStatus').textContent = pos.candidateEntryClosed
+                $('entryStatus').textContent = pos.archived
+                    ? 'This position is archived. Its election records have been retained and it is hidden from voter ballots.'
+                    : pos.candidateEntryClosed
                     ? pos.status === 'closed'
                         ? 'Voting is closed; no more candidates can be added.'
                         : pos.votingStartReached
@@ -105,7 +130,8 @@
                 pos.candidates.forEach(c => {
                     const card = el('article', 'candidate-card');
                     const img = document.createElement('img'); img.src = c.imageUrl; img.alt = 'Photo of ' + c.name;
-                    card.append(img, el('h4', '', c.name), el('small', '', c.regNumber || 'No registration number'));
+                    card.append(img, el('h4', '', c.name), el('small', '', c.regNumber || 'No registration number'),
+                        el('p', 'candidate-manifesto', c.manifesto || 'No manifesto has been provided yet.'));
                     if (editable) {
                         const actions = el('div', 'candidate-actions');
                         const up = el('button', 'ghost', 'Edit candidate');
@@ -113,6 +139,7 @@
                         up.addEventListener('click', () => {
                             editing = c;
                             $('eName').value = c.name;
+                            $('eManifesto').value = c.manifesto || '';
                             $('ePhoto').value = '';
                             $('editBox').style.display = 'block';
                             $('eName').focus();
@@ -185,12 +212,16 @@
         $('save').addEventListener('click', async () => {
             const name = $('eName').value.trim(), file = $('ePhoto').files[0];
             if (!name) return show('Enter the candidate name.', 'err');
+            const manifesto = $('eManifesto').value.trim();
+            if (!manifesto || manifesto.length > 10000) return show('Enter a manifesto (10,000 characters maximum).', 'err');
             if (file && (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024)) return show('Photo must be JPEG, PNG or WebP, 5 MB or smaller.', 'err');
             if (!confirm('Save changes to ' + editing.name + '?')) return;
-            const headers = { 'X-Candidate-Name': encodeURIComponent(name) };
-            if (file) headers['Content-Type'] = file.type;
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('manifesto', manifesto);
+            if (file) formData.append('image', file);
             try {
-                await call('/api/admin/candidates/' + editing.id, { method: 'PUT', headers, body: file || undefined });
+                await call('/api/admin/candidates/' + editing.id, { method: 'PUT', body: formData });
                 editing = null; $('editBox').style.display = 'none'; show('Candidate updated.', 'ok'); load();
             } catch (e) { show(e.message, 'err'); }
         });

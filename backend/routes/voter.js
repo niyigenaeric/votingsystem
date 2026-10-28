@@ -4,6 +4,7 @@ const pool = require('../db/connection');
 const { addAuditLog } = require('../db/audit');
 const { getTally } = require('../db/tally');
 const { closeExpiredPositions } = require('../db/election');
+const { canVoteForPosition, getPositionVotingMessage } = require('../db/candidateRules');
 const { voteRejection } = require('../db/votingRules');
 const { newVoteId } = require('../db/voteId');
 const { getVoterEligibility } = require('../db/voterEligibility');
@@ -35,48 +36,63 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
             ? await pool.query('SELECT position_id FROM voter_receipts WHERE student_id = ?', [student.id])
             : [[]];
         const votedPositionIds = receipts.map(receipt => Number(receipt.position_id));
-        const tally = await getTally();
+        const tally = await getTally({ includeArchived: false });
         const [positions] = await pool.query(
             `SELECT id, campus, DATE_FORMAT(DATE_ADD(voting_starts_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i') AS voting_starts_at,
                     DATE_FORMAT(DATE_ADD(voting_ends_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i') AS voting_ends_at
-             FROM positions`
+             FROM positions WHERE archived_at IS NULL`
         );
         const positionById = new Map(positions.map(position => [Number(position.id), position]));
-        const visiblePositions = tally.positions.filter(position => {
-            const schedule = positionById.get(Number(position.id));
-            return schedule && (!student || !student.campus || !schedule.campus || schedule.campus === student.campus);
-        });
-        const [images] = await pool.query('SELECT id, image_path FROM candidates');
-        const imageById = new Map(images.map(candidate => [String(candidate.id), candidate.image_path]));
+        const [candidateDetails] = await pool.query('SELECT id, image_path, manifesto FROM candidates');
+        const detailsById = new Map(candidateDetails.map(candidate => [String(candidate.id), candidate]));
         res.json({
             allowedToVote: eligible,
             eligibilityMessage,
-            positions: visiblePositions.map(position => {
+            positions: tally.positions.map(position => {
                 const schedule = positionById.get(Number(position.id));
-                const candidates = position.status === 'closed' && position.published
-                    ? position.candidates.map(candidate => ({
-                        id: candidate.id,
-                        name: candidate.name,
-                        votes: candidate.votes
-                    }))
-                    : votedPositionIds.includes(Number(position.id))
-                        ? []
-                        : position.status === 'open'
-                            ? position.candidates.map(candidate => ({
-                            id: candidate.id,
-                            name: candidate.name,
-                            imageUrl: imageById.get(String(candidate.id))
-                        }))
-                            : [];
+                const hasVoted = votedPositionIds.includes(Number(position.id));
+                const positionCampus = schedule.campus || null;
+                const canVote = canVoteForPosition({
+                    eligible,
+                    voterCampus: student && student.campus,
+                    positionCampus,
+                    status: position.status,
+                    hasVoted
+                });
+                const votingMessage = getPositionVotingMessage({
+                    eligible,
+                    voterCampus: student && student.campus,
+                    positionCampus,
+                    status: position.status,
+                    hasVoted
+                });
                 return {
                     id: position.id,
                     title: position.title,
+                    campus: positionCampus,
                     status: position.status,
                     published: position.published,
+                    canVote,
+                    votingMessage,
                     votingStartsAt: schedule.voting_starts_at,
                     votingEndsAt: schedule.voting_ends_at,
-                    hasVoted: votedPositionIds.includes(Number(position.id)),
-                    candidates
+                    hasVoted,
+                    candidates: position.candidates.map(candidate => {
+                        const details = detailsById.get(String(candidate.id));
+                        const candidateData = {
+                            id: candidate.id,
+                            name: candidate.name,
+                            imageUrl: details && details.image_path,
+                            manifesto: details ? details.manifesto : ''
+                        };
+                        if (position.status === 'closed' && position.published) {
+                            candidateData.votes = candidate.votes;
+                        }
+                        if (canVote) {
+                            candidateData.voteEnabled = true;
+                        }
+                        return candidateData;
+                    })
                 };
             })
         });
@@ -121,7 +137,7 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
             `SELECT id, title, campus, status,
                     (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS start_reached,
                     (voting_ends_at IS NOT NULL AND voting_ends_at > UTC_TIMESTAMP()) AS end_not_reached
-             FROM positions WHERE id = ? FOR UPDATE`,
+             FROM positions WHERE id = ? AND archived_at IS NULL FOR UPDATE`,
             [positionId]
         );
         let candidate = null;

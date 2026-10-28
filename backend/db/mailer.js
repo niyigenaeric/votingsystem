@@ -26,7 +26,7 @@ async function sendCode(to, code, purpose = 'activation') {
         });
     }
     if (process.env.NODE_ENV === 'production') throw new Error('Mail is not configured');
-    console.log('[DEV MAIL] To ' + to + ': ' + message);
+    console.log(`[DEV MAIL ${new Date().toISOString()}] To ${to}: ${message}`);
 }
 
 module.exports = { sendCode };

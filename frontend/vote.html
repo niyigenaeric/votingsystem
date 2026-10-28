@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>UR Student Voting - Ballot</title>
     <link rel="stylesheet" href="style.css">
+    <script src="theme-toggle.js" defer></script>
     <script src="session-guard.js"></script>
 </head>
 
@@ -16,13 +17,31 @@
                 <h1>Student Elections</h1>
                 <p class="sub" style="margin:0" id="sub">Loading...</p>
             </div>
-            <button class="link" id="logout">Sign out</button>
+            <div class="page-header-actions">
+                <div class="notification-center" data-notification-center>
+                    <button class="notification-toggle" type="button" data-notification-toggle aria-expanded="false"
+                        aria-controls="notificationsPanel" aria-label="Election notifications">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path></svg>
+                        <span class="notification-count" data-notification-count hidden></span>
+                    </button>
+                    <section class="notification-panel" id="notificationsPanel" data-notification-panel hidden
+                        aria-labelledby="notificationHeading">
+                        <div class="notification-panel-heading">
+                            <h2 id="notificationHeading">Election notifications</h2>
+                            <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
+                        </div>
+                        <div data-notification-list role="status" aria-live="polite"></div>
+                    </section>
+                </div>
+                <button class="link" id="logout">Sign out</button>
+            </div>
         </div>
         <div id="eligibility" class="msg" role="status" aria-live="polite"></div>
         <div id="info" class="msg"></div>
         <div id="ballot"></div>
     </div>
     <script src="back.js"></script>
+    <script src="notifications.js"></script>
     <script>
         if (sessionStorage.getItem('role') !== 'voter') window.location.href = 'index.html';
         async function signOut() {
@@ -69,36 +88,47 @@
                 button.disabled = false;
             }
         }
-        function renderPosition(position, results, allowedToVote) {
+        function renderPosition(position, allowedToVote) {
             const card = el('div', 'card');
-            card.appendChild(el('h2', '', position.title));
+            card.appendChild(el('h2', '', position.title + (position.campus ? ' — ' + position.campus : '')));
             if (position.votingEndsAt) card.appendChild(el('p', 'sub', 'Voting closes at ' + position.votingEndsAt.replace('T', ' ') + ' Kigali time.'));
-            if (position.hasVoted && !results) {
+            if (position.status === 'setup') card.appendChild(el('p', 'sub', 'Voting has not opened for this position.'));
+            if (position.status === 'closed') card.appendChild(el('p', 'sub', 'Voting is closed for this position.'));
+            card.appendChild(el('p', 'msg ' + (position.canVote ? 'ok' : ''), position.votingMessage));
+            if (position.hasVoted) {
                 card.appendChild(el('p', 'msg ok', 'Your ballot for this position has been recorded.'));
             }
-            if (results) {
-                position.candidates.forEach(candidate => {
-                    card.appendChild(el('p', '', candidate.name + ': ' + candidate.votes + ' votes'));
-                });
-            } else {
-                const list = el('div', 'candidate-list');
-                position.candidates.forEach(candidate => {
-                    const item = el('article', 'candidate-card');
-                    const img = document.createElement('img');
-                    img.src = candidate.imageUrl;
-                    img.alt = 'Photo of ' + candidate.name;
-                    img.loading = 'lazy';
-                    item.append(img, el('h4', '', candidate.name));
-                    const vote = el('button', 'admin-action', allowedToVote ? 'Vote for ' + candidate.name : 'Voting unavailable');
-                    vote.type = 'button';
-                    vote.dataset.vote = 'true';
-                    vote.disabled = !allowedToVote;
-                    if (allowedToVote) vote.addEventListener('click', () => castVote(position, candidate, vote));
-                    item.appendChild(vote);
-                    list.appendChild(item);
-                });
-                card.appendChild(list);
+            const list = el('div', 'candidate-list');
+            position.candidates.forEach(candidate => {
+                const item = el('article', 'candidate-card');
+                const img = document.createElement('img');
+                img.src = candidate.imageUrl || '';
+                img.alt = 'Photo of ' + candidate.name;
+                img.loading = 'lazy';
+                item.append(img, el('h4', '', candidate.name));
+                item.appendChild(el('p', 'candidate-manifesto',
+                    candidate.manifesto || 'No manifesto has been provided yet.'));
+                if (position.published) {
+                    item.appendChild(el('p', 'candidate-votes', candidate.votes + ' votes'));
+                }
+                const canVote = allowedToVote && position.canVote;
+                const voteLabel = canVote ? 'Vote for ' + candidate.name
+                    : position.hasVoted ? 'You have already voted'
+                        : !allowedToVote ? 'Voting unavailable for this account'
+                            : position.status === 'setup' ? 'Voting not open yet'
+                                : position.status === 'open' ? 'Voting unavailable for this position' : 'Voting closed';
+                const vote = el('button', 'admin-action', voteLabel);
+                vote.type = 'button';
+                vote.dataset.vote = 'true';
+                vote.disabled = !canVote;
+                if (canVote) vote.addEventListener('click', () => castVote(position, candidate, vote));
+                item.appendChild(vote);
+                list.appendChild(item);
+            });
+            if (!position.candidates.length) {
+                list.appendChild(el('p', 'sub', 'No candidates have been added to this position yet.'));
             }
+            card.appendChild(list);
             document.getElementById('ballot').appendChild(card);
         }
 
@@ -116,17 +146,15 @@
                 const publishedPositions = d.positions.filter(position => position.status === 'closed' && position.published);
                 const waitingPositions = d.positions.filter(position => position.status === 'setup');
                 const closedPositions = d.positions.filter(position => position.status === 'closed' && !position.published);
-                publishedPositions.forEach(position => renderPosition(position, true, d.allowedToVote));
-                openPositions.forEach(position => renderPosition(position, false, d.allowedToVote));
+                d.positions.forEach(position => renderPosition(position, d.allowedToVote));
                 const messages = [];
                 const votedCount = d.positions.filter(position => position.hasVoted).length;
                 if (votedCount) messages.push('You have voted in ' + votedCount + (votedCount === 1 ? ' position.' : ' positions.'));
                 if (openPositions.some(position => !position.hasVoted)) messages.push('Voting is open for the positions shown below.');
                 if (closedPositions.length) messages.push('Voting is closed for some positions; their results are not published yet.');
                 if (waitingPositions.length) messages.push('Some positions are not open for voting yet.');
-                if (!messages.length && !publishedPositions.length && !openPositions.length) {
-                    messages.push('No positions are currently open. Please check again later.');
-                }
+                if (!d.positions.length) messages.push('No election positions have been added yet.');
+                else if (!openPositions.length) messages.push('No positions are currently open. You can explore all candidates and their manifestos below.');
                 if (publishedPositions.length) messages.unshift('Official results are available for the published positions above.');
                 if (d.allowedToVote) notice(messages.join(' '));
                 else {
@@ -136,6 +164,10 @@
             } catch { info.textContent = 'Cannot reach the server.'; info.className = 'msg err'; }
         })();
     </script>
+    <footer class="app-footer">
+        <span>University of Rwanda Student Elections</span>
+        <span>Election information and voter services</span>
+    </footer>
 </body>
 
 </html>

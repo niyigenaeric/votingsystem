@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const fs = require('fs/promises');
 const path = require('path');
+const multer = require('multer');
 const pool = require('../db/connection');
 const { addAuditLog } = require('../db/audit');
 const { getTally } = require('../db/tally');
@@ -9,11 +10,16 @@ const { closeExpiredPositions } = require('../db/election');
 const { stripLocationMetadata } = require('../db/imagePrivacy');
 const { parseKigaliDateTime } = require('../db/schedule');
 const { CAMPUSES, canonical } = require('../db/campuses');
+const { MAX_MANIFESTO_LENGTH, isValidManifesto } = require('../db/candidateRules');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads', 'candidates'));
 const REG_RE = /^22[2-5]0[0-9]{5}$/;
+const candidateUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, fieldSize: 40000, fields: 5, files: 1 }
+}).single('image');
 const ext = b => (b.length > 2 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) ? 'jpg'
     : b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'png'
         : (b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') ? 'webp' : null;
@@ -22,6 +28,21 @@ const wrap = fn => (req, res) => fn(req, res).catch(e => {
     res.status(500).json({ message: 'Server error. Please try again or contact the administrator.' });
 });
 const ENTRY_CLOSED = { message: 'Candidate entry is closed for this position because it was closed by an admin or its deadline passed.' };
+
+function parseCandidateUpload(req, res, next) {
+    candidateUpload(req, res, error => {
+        if (!error) return next();
+        if (error instanceof multer.MulterError && error.code === 'LIMIT_UNEXPECTED_FILE') {
+            return res.status(400).json({ message: 'Candidate image upload is invalid.' });
+        }
+        const message = error.code === 'LIMIT_FILE_SIZE'
+            ? 'Candidate image must be 5 MB or smaller.'
+            : error.code === 'LIMIT_FIELD_VALUE'
+                ? 'A candidate information field is too long.'
+                : 'Candidate image upload is invalid.';
+        res.status(400).json({ message });
+    });
+}
 
 async function sanitizeImage(buffer) {
     const clean = stripLocationMetadata(buffer).buffer;
@@ -60,7 +81,7 @@ async function candidateEntryState(positionId) {
 
 async function getElectionStatus() {
     await closeExpiredPositions();
-    const [positions] = await pool.query('SELECT status FROM positions');
+    const [positions] = await pool.query('SELECT status FROM positions WHERE archived_at IS NULL');
     if (!positions.length || positions.every(position => position.status === 'setup')) return 'setup';
     if (positions.every(position => position.status === 'closed')) return 'closed';
     if (positions.every(position => position.status === 'open')) return 'open';
@@ -70,28 +91,33 @@ async function getElectionStatus() {
 router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(async (req, res) => {
     await closeExpiredPositions();
     const [pos] = await pool.query(
-        `SELECT id, title, campus, status, results_published, candidate_entry_closed,
+        `SELECT id, title, campus, status, results_published, candidate_entry_closed, archived_at,
                 CONCAT(DATE_FORMAT(DATE_ADD(voting_starts_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS voting_starts_at,
                 CONCAT(DATE_FORMAT(DATE_ADD(voting_ends_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS voting_ends_at,
                 CONCAT(DATE_FORMAT(DATE_ADD(candidate_entry_deadline, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS candidate_entry_deadline,
                 (candidate_entry_deadline IS NOT NULL AND candidate_entry_deadline <= UTC_TIMESTAMP()) AS candidate_entry_expired,
                 (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS voting_start_reached,
                 (status = 'setup' AND voting_starts_at > UTC_TIMESTAMP()) AS can_edit_candidates
-         FROM positions ORDER BY id`
+         FROM positions ORDER BY archived_at IS NOT NULL, id`
     );
-    const [c] = await pool.query('SELECT id, position_id, full_name, reg_number, image_path FROM candidates ORDER BY full_name');
+    const [c] = await pool.query(
+        'SELECT id, position_id, full_name, reg_number, image_path, manifesto FROM candidates ORDER BY full_name'
+    );
     res.json({
         status: await getElectionStatus(),
         positions: pos.map(p => ({
             id: p.id, title: p.title, campus: p.campus || null, status: p.status, published: !!p.results_published,
+            archived: !!p.archived_at,
             candidateEntryDeadline: p.candidate_entry_deadline,
             votingStartsAt: p.voting_starts_at,
             votingEndsAt: p.voting_ends_at,
             candidateEntryClosed: p.status === 'closed' || !!p.candidate_entry_closed
-                || !!p.candidate_entry_expired || !!p.voting_start_reached,
+                || !!p.candidate_entry_expired || !!p.voting_start_reached || !!p.archived_at,
             votingStartReached: !!p.voting_start_reached,
             canEditCandidates: !!p.can_edit_candidates,
-            candidates: c.filter(x => x.position_id === p.id).map(x => ({ id: x.id, name: x.full_name, regNumber: x.reg_number, imageUrl: x.image_path }))
+            candidates: c.filter(x => x.position_id === p.id).map(x => ({
+                id: x.id, name: x.full_name, regNumber: x.reg_number, imageUrl: x.image_path, manifesto: x.manifesto
+            }))
         }))
     });
 }));
@@ -124,12 +150,22 @@ router.post('/positions/candidate-entry', verifyToken, requireRole('admin'), wra
     try {
         await connection.beginTransaction();
         for (const campusName of campuses) {
+            const [[archivedPosition]] = await connection.query(
+                'SELECT id FROM positions WHERE title = ? AND campus = ? AND archived_at IS NOT NULL FOR UPDATE',
+                [title, campusName]
+            );
+            if (archivedPosition) {
+                await connection.rollback();
+                return res.status(409).json({
+                    message: 'A position with this name and campus is archived. Restore it before scheduling it again.'
+                });
+            }
             await connection.query(
                 'INSERT IGNORE INTO positions (title, campus) VALUES (?, ?)',
                 [title, campusName]
             );
             const [[position]] = await connection.query(
-                'SELECT id, status, candidate_entry_closed FROM positions WHERE title = ? AND campus = ? FOR UPDATE',
+                'SELECT id, status, candidate_entry_closed FROM positions WHERE title = ? AND campus = ? AND archived_at IS NULL FOR UPDATE',
                 [title, campusName]
             );
             if (!position || position.status === 'closed' || position.candidate_entry_closed) {
@@ -139,7 +175,7 @@ router.post('/positions/candidate-entry', verifyToken, requireRole('admin'), wra
             const [updated] = await connection.query(
                 `UPDATE positions
                  SET candidate_entry_deadline = ?, voting_starts_at = ?, voting_ends_at = ?
-                 WHERE id = ? AND status = 'setup' AND candidate_entry_closed = 0
+                 WHERE id = ? AND status = 'setup' AND archived_at IS NULL AND candidate_entry_closed = 0
                    AND (candidate_entry_deadline IS NULL OR candidate_entry_deadline > UTC_TIMESTAMP())
                    AND (voting_starts_at IS NULL OR voting_starts_at > UTC_TIMESTAMP())
                    AND ? > UTC_TIMESTAMP() AND ? > UTC_TIMESTAMP()`,
@@ -172,27 +208,30 @@ router.post('/positions/candidate-entry', verifyToken, requireRole('admin'), wra
 }));
 
 router.post('/candidates', verifyToken, requireRole('admin'),
-    express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '5mb' }),
+    parseCandidateUpload,
     wrap(async (req, res) => {
-        let name, position;
-        try {
-            name = decodeURIComponent(req.get('X-Candidate-Name') || '').trim();
-            position = decodeURIComponent(req.get('X-Candidate-Position') || '').trim();
-        } catch { return res.status(400).json({ message: 'Name or position is invalid' }); }
-        const positionId = Number(req.get('X-Candidate-Position-Id'));
-        const reg = (req.get('X-Candidate-Reg') || '').trim();
+        const body = req.body || {};
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        const position = typeof body.position === 'string' ? body.position.trim() : '';
+        const manifesto = typeof body.manifesto === 'string' ? body.manifesto.trim() : '';
+        const positionId = Number(body.positionId);
+        const reg = typeof body.regNumber === 'string' ? body.regNumber.trim() : '';
         if (!Number.isSafeInteger(positionId) || positionId < 1) return res.status(400).json({ message: 'Choose a valid position' });
         if (!name || name.length > 100) return res.status(400).json({ message: 'Name is required (100 characters maximum)' });
         if (position.length > 100) return res.status(400).json({ message: 'Position name is invalid' });
+        if (!isValidManifesto(manifesto)) {
+            return res.status(400).json({ message: 'A candidate manifesto is required (10,000 characters maximum).' });
+        }
         if (reg && !REG_RE.test(reg)) return res.status(400).json({ message: 'Registration number must look like 223007576, or leave it empty' });
-        if (!Buffer.isBuffer(req.body) || !ext(req.body)) return res.status(400).json({ message: 'Choose a valid JPEG, PNG or WebP image' });
+        if (!req.file || !ext(req.file.buffer)) return res.status(400).json({ message: 'Choose a valid JPEG, PNG or WebP image' });
         if (reg) {
             const [stu] = await pool.query("SELECT id FROM students WHERE reg_number = ? AND role = 'voter'", [reg]);
             if (!stu.length) return res.status(400).json({ message: 'This registration number is not on the eligible list' });
         }
 
-        const [[p]] = await pool.query('SELECT id, title, campus FROM positions WHERE id = ?', [positionId]);
+        const [[p]] = await pool.query('SELECT id, title, campus, archived_at FROM positions WHERE id = ?', [positionId]);
         if (!p) return res.status(404).json({ message: 'Choose the position and set its candidate-entry deadline first' });
+        if (p.archived_at) return res.status(409).json({ message: 'This position is archived' });
 
         if (p.campus && !reg) return res.status(400).json({ message: 'A registration number is required for a campus position' });
         if (p.campus) {
@@ -213,22 +252,22 @@ router.post('/candidates', verifyToken, requireRole('admin'),
 
         let cleanImage;
         try {
-            cleanImage = await sanitizeImage(req.body);
+            cleanImage = await sanitizeImage(req.file.buffer);
         } catch (error) {
             if (error.code === 'IMAGE_TOO_LARGE') return res.status(400).json({ message: error.message });
             return res.status(400).json({ message: 'The image could not be decoded. Choose a valid JPEG, PNG or WebP image.' });
         }
-        const file = crypto.randomUUID() + '.' + ext(req.body);
+        const file = crypto.randomUUID() + '.' + ext(req.file.buffer);
         await fs.mkdir(DIR, { recursive: true });
         await fs.writeFile(path.join(DIR, file), cleanImage, { flag: 'wx' });
         let id;
         try {
             const [r] = await pool.query(
-                `INSERT INTO candidates (full_name, reg_number, position_id, image_path)
-                 SELECT ?, ?, id, ? FROM positions
-                 WHERE id = ? AND status = 'setup' AND candidate_entry_closed = 0
+                `INSERT INTO candidates (full_name, reg_number, position_id, image_path, manifesto)
+                 SELECT ?, ?, id, ?, ? FROM positions
+                 WHERE id = ? AND status = 'setup' AND archived_at IS NULL AND candidate_entry_closed = 0
                    AND candidate_entry_deadline > UTC_TIMESTAMP() AND voting_starts_at > UTC_TIMESTAMP()`,
-                [name, reg || null, '/uploads/candidates/' + file, p.id]
+                [name, reg || null, '/uploads/candidates/' + file, manifesto, p.id]
             );
             if (!r.affectedRows) {
                 await removeImage(file);
@@ -275,12 +314,16 @@ router.delete('/candidates/:id', verifyToken, requireRole('admin'), wrap(async (
 }));
 
 router.put('/candidates/:id', verifyToken, requireRole('admin'),
-    express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '5mb' }),
+    parseCandidateUpload,
     wrap(async (req, res) => {
         const id = Number.parseInt(req.params.id, 10);
-        let name;
-        try { name = decodeURIComponent(req.get('X-Candidate-Name') || '').trim(); } catch { return res.status(400).json({ message: 'Name is invalid' }); }
+        const body = req.body || {};
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        const manifesto = typeof body.manifesto === 'string' ? body.manifesto.trim() : '';
         if (!name || name.length > 100) return res.status(400).json({ message: 'Name is required (100 characters maximum)' });
+        if (!isValidManifesto(manifesto)) {
+            return res.status(400).json({ message: 'A candidate manifesto is required (10,000 characters maximum).' });
+        }
         const [rows] = await pool.query(
             `SELECT c.image_path, p.id AS position_id, p.status, p.voting_starts_at,
                     (p.voting_starts_at IS NOT NULL AND p.voting_starts_at > UTC_TIMESTAMP()) AS before_voting_start
@@ -292,16 +335,16 @@ router.put('/candidates/:id', verifyToken, requireRole('admin'),
             return res.status(409).json({ message: 'Candidates can only be edited before the scheduled voting start time' });
         }
         let imagePath = rows[0].image_path, file = null;
-        if (Buffer.isBuffer(req.body)) {
-            if (!ext(req.body)) return res.status(400).json({ message: 'Choose a valid JPEG, PNG or WebP image' });
+        if (req.file) {
+            if (!ext(req.file.buffer)) return res.status(400).json({ message: 'Choose a valid JPEG, PNG or WebP image' });
             let cleanImage;
             try {
-                cleanImage = await sanitizeImage(req.body);
+                cleanImage = await sanitizeImage(req.file.buffer);
             } catch (error) {
                 if (error.code === 'IMAGE_TOO_LARGE') return res.status(400).json({ message: error.message });
                 return res.status(400).json({ message: 'The image could not be decoded. Choose a valid JPEG, PNG or WebP image.' });
             }
-            file = crypto.randomUUID() + '.' + ext(req.body);
+            file = crypto.randomUUID() + '.' + ext(req.file.buffer);
             await fs.mkdir(DIR, { recursive: true });
             await fs.writeFile(path.join(DIR, file), cleanImage, { flag: 'wx' });
             imagePath = '/uploads/candidates/' + file;
@@ -309,9 +352,9 @@ router.put('/candidates/:id', verifyToken, requireRole('admin'),
         try {
             const [updated] = await pool.query(
                 `UPDATE candidates c JOIN positions p ON p.id = c.position_id
-                 SET c.full_name = ?, c.image_path = ?
+                 SET c.full_name = ?, c.image_path = ?, c.manifesto = ?
                  WHERE c.id = ? AND p.status = 'setup' AND p.voting_starts_at > UTC_TIMESTAMP()`,
-                [name, imagePath, id]
+                [name, imagePath, manifesto, id]
             );
             if (!updated.affectedRows) {
                 if (file) await removeImage(file);
@@ -322,13 +365,56 @@ router.put('/candidates/:id', verifyToken, requireRole('admin'),
             throw e;
         }
         if (file) await removeImage(path.basename(rows[0].image_path));
-        await addAuditLog('CANDIDATE_UPDATED', req.user.regNumber, 'candidate=' + id + (file ? ', photo replaced' : ''));
+        await addAuditLog('CANDIDATE_UPDATED', req.user.regNumber,
+            'candidate=' + id + (file ? ', photo replaced' : '') + ', manifesto updated');
         res.json({ message: 'Candidate updated' });
     }));
 
 router.get('/results', verifyToken, requireRole('admin', 'auditor'), wrap(async (req, res) => {
     await closeExpiredPositions();
     res.json(await getTally());
+}));
+
+router.post('/positions/:id/archive', verifyToken, requireRole('admin'), wrap(async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid' });
+    const [[position]] = await pool.query(
+        'SELECT title, status, archived_at FROM positions WHERE id = ?',
+        [id]
+    );
+    if (!position) return res.status(404).json({ message: 'Position not found' });
+    if (position.archived_at) return res.status(409).json({ message: 'Position is already archived' });
+    if (position.status !== 'closed') {
+        return res.status(409).json({ message: 'Only closed positions can be archived' });
+    }
+    const [updated] = await pool.query(
+        `UPDATE positions SET archived_at = UTC_TIMESTAMP()
+         WHERE id = ? AND status = 'closed' AND archived_at IS NULL`,
+        [id]
+    );
+    if (!updated.affectedRows) return res.status(409).json({ message: 'Position state changed; refresh and try again' });
+    await addAuditLog('POSITION_ARCHIVED', req.user.regNumber, `position=${id}, title=${position.title}`);
+    res.json({ id, archived: true });
+}));
+
+router.post('/positions/:id/restore', verifyToken, requireRole('admin'), wrap(async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid' });
+    const [[position]] = await pool.query(
+        'SELECT title, status, archived_at FROM positions WHERE id = ?',
+        [id]
+    );
+    if (!position) return res.status(404).json({ message: 'Position not found' });
+    if (!position.archived_at) return res.status(409).json({ message: 'Position is not archived' });
+    if (position.status !== 'closed') return res.status(409).json({ message: 'Only closed positions can be restored from archive' });
+    const [updated] = await pool.query(
+        `UPDATE positions SET archived_at = NULL
+         WHERE id = ? AND status = 'closed' AND archived_at IS NOT NULL`,
+        [id]
+    );
+    if (!updated.affectedRows) return res.status(409).json({ message: 'Position state changed; refresh and try again' });
+    await addAuditLog('POSITION_RESTORED', req.user.regNumber, `position=${id}, title=${position.title}`);
+    res.json({ id, archived: false });
 }));
 
 router.post('/positions/:id/status', verifyToken, requireRole('admin'), wrap(async (req, res) => {

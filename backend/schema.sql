@@ -7,8 +7,10 @@ USE voting_system;
 CREATE TABLE IF NOT EXISTS students (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   reg_number VARCHAR(20) NOT NULL,
+  username VARCHAR(50) NULL,
   full_name VARCHAR(100) NOT NULL,
   contact_email VARCHAR(150) NOT NULL,
+  university_position VARCHAR(100) NULL,
   campus VARCHAR(50) NULL,
   password_hash VARCHAR(255) NULL,
   role ENUM('voter', 'admin', 'auditor') NOT NULL DEFAULT 'voter',
@@ -18,6 +20,7 @@ CREATE TABLE IF NOT EXISTS students (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_students_reg_number (reg_number),
+  UNIQUE KEY uq_students_username (username),
   UNIQUE KEY uq_students_email (contact_email),
   KEY idx_students_campus_role (campus, role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -48,6 +51,7 @@ CREATE TABLE IF NOT EXISTS positions (
   results_published TINYINT(1) NOT NULL DEFAULT 0,
   published_at DATETIME NULL,
   results_hash CHAR(64) NULL,
+  archived_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_positions_title_campus (title, campus),
@@ -60,6 +64,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   reg_number VARCHAR(20) NULL,
   position_id INT NOT NULL,
   image_path VARCHAR(255) NOT NULL,
+  manifesto TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_candidates_position_reg (position_id, reg_number),

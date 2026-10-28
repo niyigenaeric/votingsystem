@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UR Student Voting - Add Candidates</title>
   <link rel="stylesheet" href="style.css">
+  <script src="theme-toggle.js" defer></script>
   <script src="session-guard.js"></script>
 </head>
 
@@ -17,6 +18,19 @@
           <button type="button" class="back-button" data-back-button aria-label="Back">Back</button>
           <h1>Add candidates</h1>
         </div>
+        <div class="notification-center" data-notification-center>
+          <button class="notification-toggle" type="button" data-notification-toggle aria-expanded="false"
+            aria-controls="notificationsPanel" aria-label="Election notifications">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path></svg>
+            <span class="notification-count" data-notification-count hidden></span>
+          </button>
+          <section class="notification-panel" id="notificationsPanel" data-notification-panel hidden aria-labelledby="notificationHeading">
+            <div class="notification-panel-heading">
+              <h2 id="notificationHeading">Election notifications</h2>
+              <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
+            </div>
+            <div data-notification-list role="status" aria-live="polite"></div>
+          </section>
       </div>
       <p class="sub">First choose the position or group, then enter each candidate's information.</p>
 
@@ -85,6 +99,9 @@
           placeholder="223007576">
         <label for="candidateName">Candidate name</label>
         <input type="text" id="candidateName" maxlength="100" required>
+        <label for="candidateManifesto">Candidate manifesto</label>
+        <textarea id="candidateManifesto" maxlength="10000" rows="8" required></textarea>
+        <p class="sub">Share the candidate's plans and priorities (10,000 characters maximum).</p>
         <label for="candidateImage">Candidate image</label>
         <input type="file" id="candidateImage" accept="image/jpeg,image/png,image/webp" required>
         <p class="sub">Use a JPEG, PNG, or WebP image no larger than 5 MB.</p>
@@ -104,8 +121,13 @@
       <div id="candidateOverview" class="candidate-position-groups"></div>
     </section>
   </main>
+  <footer class="app-footer">
+    <span>University of Rwanda Student Elections</span>
+    <span>Election information and voter services</span>
+  </footer>
 
   <script src="back.js"></script>
+  <script src="notifications.js"></script>
   <script>
     const role = sessionStorage.getItem('role');
     if (role !== 'admin') window.location.href = 'index.html';
@@ -401,10 +423,16 @@
       event.preventDefault();
       const name = document.getElementById('candidateName').value.trim();
       const reg = document.getElementById('candidateReg').value.trim();
+      const manifesto = document.getElementById('candidateManifesto').value.trim();
       const image = document.getElementById('candidateImage').files[0];
       const button = document.getElementById('candidateSubmit');
       if (!image) {
         formMessage.textContent = 'Choose a candidate image first.';
+        formMessage.className = 'msg err';
+        return;
+      }
+      if (!manifesto || manifesto.length > 10000) {
+        formMessage.textContent = 'Enter a candidate manifesto (10,000 characters maximum).';
         formMessage.className = 'msg err';
         return;
       }
@@ -423,17 +451,17 @@
       button.disabled = true;
       formMessage.className = 'msg';
       try {
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('regNumber', reg);
+        formData.append('position', selectedPosition);
+        formData.append('positionId', String(selectedPositionId));
+        formData.append('manifesto', manifesto);
+        formData.append('image', image);
         const res = await fetch('/api/admin/candidates', {
           method: 'POST',
           credentials: 'same-origin',
-          headers: {
-            'Content-Type': image.type,
-            'X-Candidate-Name': encodeURIComponent(name),
-            'X-Candidate-Reg': reg,
-            'X-Candidate-Position': encodeURIComponent(selectedPosition),
-            'X-Candidate-Position-Id': String(selectedPositionId)
-          },
-          body: image
+          body: formData
         });
         if (res.status === 401 || res.status === 403) {
           signOut();

@@ -3,16 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>UR Student Voting - Sign in</title>
+  <title>Administrator Panel Sign In - UR Student Elections</title>
   <link rel="stylesheet" href="style.css">
+  <script src="theme-toggle.js" defer></script>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Student Voting System</h1>
-      <p class="sub">University of Rwanda Student Voting System. Sign in with your registration number.</p>
-      <label for="reg">Registration number</label>
-      <input type="text" id="reg" autocomplete="username">
+      <h1>Administrator Panel Sign In</h1>
+      <p class="sub">Sign in to the University of Rwanda Student Elections administration panel.</p>
+      <label for="username">Username</label>
+      <input type="text" id="username" autocomplete="username">
       <label for="pw">Password</label>
       <div class="password-field" data-password-field>
         <input type="password" id="pw" autocomplete="current-password">
@@ -32,6 +33,10 @@
       <div id="msg" class="msg"></div>
     </div>
   </div>
+  <footer class="app-footer">
+    <span>University of Rwanda Student Elections</span>
+    <span>Election information and voter services</span>
+  </footer>
 
   <script src="password-toggle.js"></script>
   <script src="back.js"></script>
@@ -47,16 +52,16 @@
     }
 
     async function login() {
-      const regNumber = document.getElementById('reg').value.trim();
+      const username = document.getElementById('username').value.trim();
       const password = document.getElementById('pw').value;
-      if (!regNumber || !password) return show('Enter your registration number and password.', 'err');
+      if (!username || !password) return show('Enter your username and password.', 'err');
       btn.disabled = true;
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ regNumber, password })
+          body: JSON.stringify({ username, password })
         });
         const data = await res.json();
         if (!res.ok) return show(data.message || 'Sign in failed.', 'err');
@@ -76,7 +81,7 @@
     btn.addEventListener('click', login);
     document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
     document.getElementById('verifyCode').addEventListener('click', async () => {
-      const regNumber = document.getElementById('reg').value.trim();
+      const username = document.getElementById('username').value.trim();
       const code = document.getElementById('code').value.trim();
       if (!/^\d{6}$/.test(code)) return show('Enter the 6-digit code sent to your administrator email.', 'err');
       const verify = document.getElementById('verifyCode');
@@ -86,7 +91,7 @@
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ regNumber, code })
+          body: JSON.stringify({ username, code })
         });
         const data = await res.json();
         if (!res.ok) return show(data.message || 'Code verification failed.', 'err');

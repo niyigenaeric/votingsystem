@@ -45,6 +45,8 @@ async function main() {
     }
 
     await ensureColumn('students', 'campus', 'VARCHAR(50) NULL');
+    await ensureColumn('students', 'username', 'VARCHAR(50) NULL');
+    await ensureColumn('students', 'university_position', 'VARCHAR(100) NULL');
     await ensureColumn('students', 'role', "ENUM('voter','admin','auditor') NOT NULL DEFAULT 'voter'");
     await ensureColumn('students', 'is_activated', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumn('students', 'password_hash', 'VARCHAR(255) NULL');
@@ -65,6 +67,11 @@ async function main() {
     }
     await ensureIndex('students', 'uq_students_reg_number', ['reg_number'], true);
     await ensureIndex('students', 'uq_students_email', ['contact_email'], true);
+    await pool.query(
+        `UPDATE students SET username = reg_number
+         WHERE role IN ('admin', 'auditor') AND username IS NULL`
+    );
+    await ensureIndex('students', 'uq_students_username', ['username'], true);
 
     await ensureColumn('positions', 'campus', "VARCHAR(50) NOT NULL DEFAULT ''");
     await pool.query("UPDATE positions SET campus = '' WHERE campus IS NULL");
@@ -77,6 +84,7 @@ async function main() {
     await ensureColumn('positions', 'results_published', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumn('positions', 'published_at', 'DATETIME NULL');
     await ensureColumn('positions', 'results_hash', 'CHAR(64) NULL');
+    await ensureColumn('positions', 'archived_at', 'DATETIME NULL');
 
     const [positionIndexes] = await pool.query('SHOW INDEX FROM positions');
     const groupedIndexes = new Map();
@@ -97,6 +105,13 @@ async function main() {
     await ensureColumn('candidates', 'reg_number', 'VARCHAR(20) NULL');
     await ensureColumn('candidates', 'position_id', 'INT NULL');
     await ensureColumn('candidates', 'image_path', 'VARCHAR(255) NULL');
+    await ensureColumn('candidates', 'manifesto', 'TEXT NULL');
+    await pool.query("UPDATE candidates SET manifesto = '' WHERE manifesto IS NULL");
+    const [candidateColumns] = await pool.query('SHOW COLUMNS FROM candidates');
+    const manifestoColumn = candidateColumns.find(column => column.Field === 'manifesto');
+    if (manifestoColumn && manifestoColumn.Null === 'YES') {
+        await pool.query('ALTER TABLE candidates MODIFY manifesto TEXT NOT NULL');
+    }
     await ensureIndex('candidates', 'uq_candidates_id_position', ['id', 'position_id'], true);
     await ensureIndex('candidates', 'uq_candidates_position_reg', ['position_id', 'reg_number'], true);
 

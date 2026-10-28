@@ -42,17 +42,23 @@ function issueSession(student, res) {
 
 router.post('/login', loginLimiter, async (req, res) => {
     try {
-        const { regNumber, password } = req.body || {};
-        if (typeof regNumber !== 'string' || typeof password !== 'string') {
-            return res.status(400).json({ message: 'Registration number and password are required' });
+        const body = req.body || {};
+        const { password } = body;
+        const usernameLogin = typeof body.username === 'string';
+        const loginName = usernameLogin ? body.username : body.regNumber;
+        if (typeof loginName !== 'string' || typeof password !== 'string') {
+            return res.status(400).json({ message: 'Username or registration number and password are required' });
         }
 
-        const registrationNumber = regNumber.trim();
-        const [voterAccounts] = await pool.query(
-            `SELECT *, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
-             FROM voter_accounts WHERE reg_number = ?`,
-            [registrationNumber]
-        );
+        const registrationNumber = loginName.trim();
+        let voterAccounts = [];
+        if (!usernameLogin) {
+            [voterAccounts] = await pool.query(
+                `SELECT *, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
+                 FROM voter_accounts WHERE reg_number = ?`,
+                [registrationNumber]
+            );
+        }
         const voterAccount = voterAccounts[0];
         if (voterAccount) {
             const fullName = typeof req.body.fullName === 'string'
@@ -108,9 +114,12 @@ router.post('/login', loginLimiter, async (req, res) => {
             return issueSession({ ...voterAccount, role: 'voter' }, res);
         }
 
+        const studentLookup = usernameLogin
+            ? "username = ? AND role IN ('admin', 'auditor')"
+            : 'reg_number = ?';
         const [rows] = await pool.query(
             `SELECT *, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
-             FROM students WHERE reg_number = ?`,
+             FROM students WHERE ${studentLookup}`,
             [registrationNumber]
         );
         const student = rows[0];
@@ -174,17 +183,19 @@ router.post('/login', loginLimiter, async (req, res) => {
 });
 
 router.post('/login/verify', loginLimiter, async (req, res) => {
-    const registrationNumber = String((req.body && req.body.regNumber) || '').trim();
+    const body = req.body || {};
+    const usernameLogin = typeof body.username === 'string';
+    const registrationNumber = String((usernameLogin ? body.username : body.regNumber) || '').trim();
     const code = String((req.body && req.body.code) || '').trim();
     if (!registrationNumber || !/^\d{6}$/.test(code)) {
-        return res.status(400).json({ message: 'Registration number and a 6-digit code are required.' });
+        return res.status(400).json({ message: 'Username and a 6-digit code are required.' });
     }
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
         const [[student]] = await connection.query(
             `SELECT id, reg_number, role, is_activated, contact_email
-             FROM students WHERE reg_number = ? AND role = 'admin' AND is_activated = 1 FOR UPDATE`,
+             FROM students WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role = 'admin' AND is_activated = 1 FOR UPDATE`,
             [registrationNumber]
         );
         if (!student) {

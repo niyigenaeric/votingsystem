@@ -1,8 +1,9 @@
 const pool = require('./connection');
 
-async function getTally() {
+async function getTally({ includeArchived = true } = {}) {
     const [pos] = await pool.query(
-        'SELECT id, title, status, results_published, published_at, results_hash FROM positions ORDER BY id'
+        `SELECT id, title, status, results_published, published_at, results_hash, archived_at
+         FROM positions ${includeArchived ? '' : 'WHERE archived_at IS NULL'} ORDER BY id`
     );
     const [cands] = await pool.query('SELECT id, position_id, full_name FROM candidates ORDER BY full_name');
     const counts = new Map();
@@ -25,6 +26,7 @@ async function getTally() {
             title: p.title,
             status: p.status,
             published: !!p.results_published,
+            archived: !!p.archived_at,
             publishedAt: p.published_at,
             hash: p.results_hash,
             candidates: cands.filter(c => c.position_id === p.id).map(c => ({
