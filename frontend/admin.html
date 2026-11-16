@@ -19,6 +19,8 @@
       </a>
       <div class="admin-header-actions">
         <span class="admin-role" id="adminRole"></span>
+        <button class="admin-menu-toggle" id="menuToggle" type="button" aria-controls="adminSidebar" aria-expanded="false"
+          aria-label="Show navigation menu" title="Show navigation menu">☰</button>
         <div class="notification-center" data-notification-center>
           <button class="notification-toggle" type="button" data-notification-toggle aria-expanded="false"
             aria-controls="notificationsPanel" aria-label="Election notifications">
@@ -30,7 +32,7 @@
               <h2 id="notificationHeading">Election notifications</h2>
               <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
             </div>
-            <div data-notification-list role="status" aria-live="polite"></div>
+            <div data-notification-list role="region" aria-label="Election notification list" aria-live="polite"></div>
           </section>
         </div>
         <button class="link" id="logout">Sign out</button>
@@ -38,12 +40,9 @@
     </header>
 
     <div class="admin-layout sidebar-collapsed" id="adminLayout">
-      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin menu">
+      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin menu" aria-hidden="true" inert>
         <div class="admin-sidebar-heading">
           <p class="admin-sidebar-title">Manage election</p>
-          <button class="admin-menu-toggle" id="menuToggle" type="button" aria-controls="adminSidebarNav" aria-expanded="false" aria-label="Show navigation menu" title="Show navigation menu">
-            <span aria-hidden="true">☰</span>
-          </button>
         </div>
         <nav class="admin-sidebar-nav" id="adminSidebarNav" aria-label="Admin sections">
           <a href="#overview" class="admin-sidebar-link active" data-section="overview" aria-label="Overview" title="Overview">
@@ -90,14 +89,20 @@
           <div id="msgStats" class="msg" role="status" aria-live="polite"></div>
           <h3 class="admin-subheading">Positions and candidates</h3>
           <p class="sub admin-section-copy">Choose a position to review its candidates. Voting availability is shown beside each one.</p>
+          <label class="position-search-label" for="positionSearch">Search positions</label>
+          <div class="position-search-control">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg>
+            <input type="search" id="positionSearch" class="position-search" placeholder="Search positions or campuses">
+          </div>
           <div id="posList" class="admin-position-list"></div>
+          <p id="positionSearchEmpty" class="admin-empty" hidden>No positions match your search.</p>
         </section>
 
         <section class="card admin-section" id="electionSection" aria-labelledby="electionTitle">
           <div class="section-heading">
             <div><p class="eyebrow">ELECTION CONTROL</p><h2 id="electionTitle">Manage each position</h2></div>
           </div>
-          <p class="sub admin-section-copy" id="electionHelp">Schedules use Rwanda local time (Africa/Kigali). Use Manage candidates on a position to add, edit, or delete its candidates before voting starts. Closed positions can be archived to remove them from the active list and voter ballots; their records are retained. Voting does not start automatically: an administrator opens a position after its scheduled start. Each position closes automatically at its scheduled end, or may be closed earlier.</p>
+          <p class="sub admin-section-copy" id="electionHelp">Schedules use Rwanda local time (Africa/Kigali). Use Manage position to edit position details before voting starts. If the scheduled start passes before voting is opened, you can reschedule the unopened election; existing candidates remain unchanged. Closed positions can be archived manually to remove them from the active list and voter ballots; their records are retained in Archived elections. Voting does not start automatically: an administrator opens a position after its scheduled start. Each position closes automatically at its scheduled end, or may be closed earlier.</p>
           <div id="msgPos" class="msg" role="status" aria-live="polite"></div>
           <div class="admin-table-wrap">
             <table class="admin-position-table">
@@ -119,14 +124,17 @@
               <div id="msgRes" class="msg" role="status" aria-live="polite"></div>
             </div>
           </div>
+        </section>
+
+        <section class="card admin-section" id="archiveSection" aria-labelledby="archiveTitle">
           <details class="admin-archive">
             <summary class="admin-archive-toggle">
-              <span class="admin-archive-title">Archived positions</span>
-              <span id="archiveCount" class="admin-archive-count" aria-label="Archived position count">0</span>
-              <span class="admin-archive-hint">Click to view or restore archived election records</span>
+              <span class="admin-archive-title" id="archiveTitle">Archived elections</span>
+              <span id="archiveCount" class="admin-archive-count" aria-label="Archived election count">0</span>
+              <span class="admin-archive-hint">Tap to view or restore archived election records</span>
             </summary>
             <div class="admin-archive-content">
-              <p class="sub">Archived positions are hidden from voter ballots. Candidates, votes, results, and audit history are retained. Restore a position to return it to the closed list.</p>
+              <p class="sub">Archived positions are hidden from voter ballots. Candidates, votes, results, and audit history are retained. Restore a position to return it to Election Control as a closed position.</p>
               <div class="admin-table-wrap">
                 <table class="admin-position-table admin-archive-table">
                   <colgroup><col class="admin-position-col"><col class="admin-details-col"><col class="admin-status-col"><col class="admin-actions-col"></colgroup>
@@ -139,13 +147,20 @@
         </section>
 
         <section class="card admin-section" id="auditSection" aria-labelledby="auditTitle">
-          <div class="section-heading">
-            <div><p class="eyebrow">ACCOUNTABILITY</p><h2 id="auditTitle">Audit log</h2></div>
-            <button type="button" class="admin-action" id="loadAudit">Load audit entries</button>
-          </div>
-          <p class="sub admin-section-copy">Entries are displayed oldest first. Run <code>npm run db:verify-audit</code> on the server to recompute and verify the complete hash chain.</p>
-          <div id="auditEntries" aria-live="polite"></div>
-          <div id="msgAudit" class="msg" role="status" aria-live="polite"></div>
+          <details class="admin-archive admin-audit">
+            <summary class="admin-archive-toggle">
+              <span class="admin-archive-title" id="auditTitle">Audit log</span>
+              <span class="admin-archive-hint">Tap to view audit history</span>
+            </summary>
+            <div class="admin-archive-content">
+              <div class="section-heading">
+                <div><p class="eyebrow">ACCOUNTABILITY</p><p class="sub admin-section-copy">Entries are displayed oldest first. Run <code>npm run db:verify-audit</code> on the server to recompute and verify the complete hash chain.</p></div>
+                <button type="button" class="admin-action" id="loadAudit">Load audit entries</button>
+              </div>
+              <div id="auditEntries" aria-live="polite"></div>
+              <div id="msgAudit" class="msg" role="status" aria-live="polite"></div>
+            </div>
+          </details>
         </section>
       </main>
     </div>
@@ -169,6 +184,7 @@
 
   <script src="back.js"></script>
   <script src="notifications.js"></script>
+  <script src="time.js"></script>
   <script>
     const role = sessionStorage.getItem('role');
     if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
@@ -177,6 +193,19 @@
     const countdownUpdates = [];
     function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
     function note(box, text, type) { box.textContent = text; box.className = 'msg ' + type; }
+    function applyPositionSearch() {
+      const query = $('positionSearch').value.trim().toLocaleLowerCase();
+      const lists = ['posList', 'controlList', 'archiveList', 'results'];
+      let matched = 0;
+      lists.forEach(id => {
+        $(id).querySelectorAll('[data-position-search]').forEach(item => {
+          const visible = item.dataset.positionSearch.includes(query);
+          item.hidden = !visible;
+          if (id === 'posList' && visible) matched++;
+        });
+      });
+      $('positionSearchEmpty').hidden = !query || matched > 0;
+    }
     async function signOut() {
       try {
         const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
@@ -197,11 +226,15 @@
       return d;
     }
     $('logout').addEventListener('click', signOut);
+    $('positionSearch').addEventListener('input', applyPositionSearch);
     const adminLayout = $('adminLayout');
     const menuToggle = $('menuToggle');
     function updateMenuToggle() {
       const expanded = !adminLayout.classList.contains('sidebar-collapsed');
       menuToggle.setAttribute('aria-expanded', String(expanded));
+      const sidebar = $('adminSidebar');
+      sidebar.inert = !expanded;
+      sidebar.setAttribute('aria-hidden', String(!expanded));
       const label = expanded ? 'Hide navigation menu' : 'Show navigation menu';
       menuToggle.setAttribute('aria-label', label);
       menuToggle.title = label;
@@ -283,6 +316,7 @@
               : 'Not open';
           const a = el('a', 'pos-link');
           a.href = 'position.html?id=' + p.id;
+          a.dataset.positionSearch = (p.title + ' ' + (p.campus || 'all campuses')).toLocaleLowerCase();
           a.append(el('b', '', p.title));
           const summary = el('span', 'position-summary');
           summary.append(
@@ -292,7 +326,7 @@
             el('span', 'position-candidate-count', p.candidateEntryClosed
               ? 'Candidate entry closed'
               : p.candidateEntryDeadline
-                ? 'Candidates until ' + p.candidateEntryDeadline.replace('T', ' ')
+                ? 'Candidates until ' + formatRwandaDateTime(p.candidateEntryDeadline)
                 : 'Candidate deadline not set'),
             countdownElement(p, 'position-candidate-count')
           );
@@ -300,6 +334,7 @@
           list.appendChild(a);
 
           const row = document.createElement('tr');
+          row.dataset.positionSearch = (p.title + ' ' + (p.campus || 'all campuses')).toLocaleLowerCase();
           const positionCell = document.createElement('td');
           positionCell.appendChild(el('strong', 'admin-table-title', p.title));
           if (p.campus) positionCell.appendChild(el('span', 'admin-table-meta', p.campus + ' campus'));
@@ -309,7 +344,7 @@
             el('span', 'admin-table-meta', p.candidateEntryClosed
               ? 'Candidate entry closed'
               : p.candidateEntryDeadline
-                ? 'Candidate entry deadline: ' + p.candidateEntryDeadline.replace('T', ' ')
+                ? 'Candidate entry deadline: ' + formatRwandaDateTime(p.candidateEntryDeadline)
                 : 'Candidate entry deadline not set'),
             countdownElement(p, 'admin-table-meta')
           );
@@ -320,7 +355,7 @@
           const actions = el('div', 'admin-control-actions');
 
           if (role === 'admin') {
-            const manageCandidates = el('button', 'admin-action', 'Manage candidates');
+            const manageCandidates = el('button', 'admin-action', 'Manage position');
             manageCandidates.type = 'button';
             manageCandidates.addEventListener('click', () => {
               window.location.href = 'position.html?id=' + encodeURIComponent(p.id);
@@ -369,6 +404,7 @@
         }
         archivedPositions.forEach(p => {
           const row = document.createElement('tr');
+          row.dataset.positionSearch = (p.title + ' ' + (p.campus || 'all campuses')).toLocaleLowerCase();
           const positionCell = document.createElement('td');
           positionCell.appendChild(el('strong', 'admin-table-title', p.title));
           if (p.campus) positionCell.appendChild(el('span', 'admin-table-meta', p.campus + ' campus'));
@@ -391,6 +427,7 @@
           row.appendChild(actionCell);
           archiveList.appendChild(row);
         });
+        applyPositionSearch();
       } catch (e) { note($('msgPos'), e.message, 'err'); }
     }
 
@@ -519,14 +556,15 @@
       box.replaceChildren();
       try {
         const r = await call('/api/admin/results');
-        const closed = r.positions.filter(position => position.status === 'closed');
-        $('resHelp').textContent = 'Totals are available to administrators after each position closes. Voters see results only after you publish that position.';
+        const closed = r.positions.filter(position => position.status === 'closed' && !position.archived);
+        $('resHelp').textContent = 'Totals are available to administrators after each position closes. Voters see results only after you publish that position. All displayed dates and times use Rwanda time (CAT). Archived positions are kept separately in Archived elections.';
         if (!closed.length) {
           box.appendChild(el('p', 'admin-empty', 'No positions have closed yet.'));
           return;
         }
         closed.forEach(position => {
           const card = el('article', 'admin-result-card');
+          card.dataset.positionSearch = (position.title + ' ' + (position.campus || 'all campuses')).toLocaleLowerCase();
           const heading = el('div', 'admin-result-heading');
           heading.append(el('h3', '', position.title), el('span', 'position-state closed',
             position.archived ? 'Archived' : position.published ? 'Published' : 'Closed'));
@@ -541,11 +579,18 @@
           table.appendChild(body);
           card.appendChild(table);
           if (position.publishedAt) {
-            card.appendChild(el('p', 'admin-result-meta', 'Published ' + new Date(position.publishedAt).toLocaleString()));
+            card.appendChild(el('p', 'admin-result-meta', 'Published ' + formatRwandaDateTime(position.publishedAt)));
           }
-          if (position.hash) card.appendChild(el('p', 'admin-result-hash', 'Integrity check: ' + position.hash));
+          if (position.published) {
+            const integrity = position.integrity === 'verified'
+              ? 'Published tally hash verified'
+              : 'WARNING: published tally does not match its stored hash';
+            card.appendChild(el('p', position.integrity === 'verified' ? 'admin-result-meta' : 'msg err', integrity));
+            if (position.hash) card.appendChild(el('p', 'admin-result-hash', 'SHA-256: ' + position.hash));
+          }
           box.appendChild(card);
         });
+        applyPositionSearch();
       } catch (e) { note($('msgRes'), e.message, 'err'); }
     }
 
@@ -562,7 +607,7 @@
           const card = el('article', 'admin-result-card');
           card.append(
             el('h3', '', '#' + entry.id + ' · ' + entry.eventType),
-            el('p', 'admin-result-meta', new Date(entry.createdAt).toLocaleString() + ' · ' + entry.actor),
+            el('p', 'admin-result-meta', formatRwandaDateTime(entry.createdAt) + ' · ' + entry.actor),
             el('p', 'admin-result-meta', entry.details),
             el('p', 'admin-result-hash', 'Previous hash: ' + entry.previousHash),
             el('p', 'admin-result-hash', 'Entry hash: ' + entry.entryHash)

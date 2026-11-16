@@ -12,20 +12,23 @@
     <div class="card">
       <h1>Administrator Panel Sign In</h1>
       <p class="sub">Sign in to the University of Rwanda Student Elections administration panel.</p>
+      <form id="adminLoginForm" autocomplete="on">
       <label for="username">Username</label>
-      <input type="text" id="username" autocomplete="username">
+      <input type="text" id="username" name="username" placeholder="Administrator username" autocomplete="username">
       <label for="pw">Password</label>
       <div class="password-field" data-password-field>
-        <input type="password" id="pw" autocomplete="current-password">
+        <input type="password" id="pw" name="password" placeholder="Administrator password" autocomplete="current-password">
         <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
           <svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           <svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c6.4 0 10 7 10 7a15.7 15.7 0 0 1-3.1 3.9M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7a10.5 10.5 0 0 0 4-.8"></path></svg>
         </button>
       </div>
-      <button id="btn">Sign in</button>
+      <button id="btn" type="submit">Sign in</button>
+      </form>
       <div id="codeStep" hidden>
-        <label for="code">Administrator sign-in code</label>
+        <label for="code">Privileged sign-in code</label>
         <input type="text" id="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+        <p id="codeNotice" class="sub">Enter the code sent to your registered staff email.</p>
         <button id="verifyCode" type="button">Verify code</button>
       </div>
       <p class="sub" style="margin:14px 0 0">New voter? <a href="voter-register.html">Create an account</a></p>
@@ -41,6 +44,7 @@
   <script src="password-toggle.js"></script>
   <script src="back.js"></script>
   <script>
+    const loginForm = document.getElementById('adminLoginForm');
     const btn = document.getElementById('btn');
     const msg = document.getElementById('msg');
 
@@ -67,8 +71,10 @@
         if (!res.ok) return show(data.message || 'Sign in failed.', 'err');
         if (data.requiresCode) {
           document.getElementById('codeStep').hidden = false;
+          document.getElementById('codeNotice').textContent =
+            `A one-time code was sent to the registered staff email for ${username}. The code verifies sign-in only; the election administrator remains responsible for assigning roles and privileges.`;
           document.getElementById('code').focus();
-          return show('A one-time sign-in code has been sent to the administrator email.', 'ok');
+          return show('A one-time sign-in code has been sent to the registered staff email.', 'ok');
         }
         enterApplication(data);
       } catch {
@@ -78,8 +84,10 @@
       }
     }
 
-    btn.addEventListener('click', login);
-    document.getElementById('pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+    loginForm.addEventListener('submit', event => {
+      event.preventDefault();
+      login();
+    });
     document.getElementById('verifyCode').addEventListener('click', async () => {
       const username = document.getElementById('username').value.trim();
       const code = document.getElementById('code').value.trim();

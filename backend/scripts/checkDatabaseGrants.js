@@ -9,7 +9,7 @@ async function main() {
     const database = String(process.env.DB_NAME || '').replace(/`/g, '``');
     if (!database) throw new Error('DB_NAME is required to evaluate the current grants.');
     const restrictedTables = ['votes', 'voter_receipts', 'audit_log'];
-    const voterAccountTable = 'voter_accounts';
+    const voterAccountTables = ['voter_accounts', 'voter_login_codes', 'voter_email_verification_tokens', 'voter_password_reset_tokens', 'election_notification_reads'];
     const forbidden = /\b(?:ALL PRIVILEGES|UPDATE|DELETE|ALTER|DROP)\b/i;
     const normalizedGrants = grants.map(grant => {
         const normalized = grant.replace(/`/g, '').toLowerCase();
@@ -31,7 +31,7 @@ async function main() {
     const voterAccountUnsafeGrant = normalizedGrants.find(grant =>
         ((grant.scope === '*.*' || grant.scope === `${database.toLowerCase()}.*`)
             && forbidden.test(grant.privileges))
-        || (grant.scope === `${database.toLowerCase()}.${voterAccountTable}`
+        || (voterAccountTables.some(table => grant.scope === `${database.toLowerCase()}.${table}`)
             && /\b(?:ALL PRIVILEGES|DELETE|ALTER|DROP)\b/i.test(grant.privileges))
     );
     const missingPermissions = [];
@@ -48,15 +48,17 @@ async function main() {
             }
         }
     }
-    const voterAccountGrants = normalizedGrants.filter(grant =>
-        grant.scope === '*.*'
-        || grant.scope === `${database.toLowerCase()}.*`
-        || grant.scope === `${database.toLowerCase()}.${voterAccountTable}`
-    );
-    for (const privilege of ['SELECT', 'INSERT', 'UPDATE']) {
-        if (!voterAccountGrants.some(grant => /\bALL PRIVILEGES\b/i.test(grant.privileges)
-            || new RegExp(`\\b${privilege}\\b`, 'i').test(grant.privileges))) {
-            missingPermissions.push(`${voterAccountTable}: ${privilege}`);
+    for (const table of voterAccountTables) {
+        const tableGrants = normalizedGrants.filter(grant =>
+            grant.scope === '*.*'
+            || grant.scope === `${database.toLowerCase()}.*`
+            || grant.scope === `${database.toLowerCase()}.${table}`
+        );
+        for (const privilege of ['SELECT', 'INSERT', 'UPDATE']) {
+            if (!tableGrants.some(grant => /\bALL PRIVILEGES\b/i.test(grant.privileges)
+                || new RegExp(`\\b${privilege}\\b`, 'i').test(grant.privileges))) {
+                missingPermissions.push(`${table}: ${privilege}`);
+            }
         }
     }
     if (broadGrant || tableWriteGrants.length || voterAccountUnsafeGrant) {
@@ -71,7 +73,7 @@ async function main() {
     }
     console.log('No UPDATE, DELETE, ALTER, or DROP grant was found for the protected tables.');
     console.log('The protected tables have SELECT and INSERT privileges only.');
-    console.log('voter_accounts has the SELECT, INSERT, and UPDATE privileges required by voter sign-in.');
+    console.log('Voter account, token, and notification-read tables have the SELECT, INSERT, and UPDATE privileges required by voter access.');
 }
 
 main()

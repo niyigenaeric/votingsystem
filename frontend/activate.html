@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>UR Student Voting - Create voter account</title>
+    <title>UR Student Voting - Verify voter account</title>
     <link rel="stylesheet" href="style.css">
     <script src="theme-toggle.js" defer></script>
 </head>
@@ -12,16 +12,73 @@
 <body>
     <div class="wrap">
         <div class="card">
-            <h1>Create a voter account</h1>
-            <p class="sub">Create an account first. Voter-list eligibility is checked when you sign in.</p>
-            <p><a href="voter-register.html">Create a voter account</a></p>
-            <p class="sub" style="margin:16px 0 0"><a href="voter-login.html">Back to voter sign in</a></p>
+            <h1>Verify your voter account</h1>
+            <p class="sub">A one-time code is sent only to the email address on the official voter list. Verification is required before you can vote.</p>
+            <form id="requestForm" class="form-validation">
+                <label for="requestReg">Registration number</label>
+                <input type="text" id="requestReg" placeholder="Enter your registration number" autocomplete="username" required>
+                <button type="submit">Send verification code</button>
+            </form>
+            <form id="confirmForm" class="form-validation" style="margin-top:20px">
+                <label for="confirmReg">Registration number</label>
+                <input type="text" id="confirmReg" placeholder="Enter your registration number" autocomplete="username" required>
+                <label for="code">Six-digit code</label>
+                <input type="text" id="code" placeholder="Enter the six-digit code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+                <button type="submit">Verify account</button>
+            </form>
+            <div id="msg" class="msg" role="status" aria-live="polite"></div>
+            <p class="sub" style="margin:16px 0 0"><a href="voter-register.html">Create a voter account</a></p>
+            <p class="sub" style="margin:8px 0 0"><a href="voter-login.html">Back to voter sign in</a></p>
         </div>
     </div>
     <footer class="app-footer">
         <span>University of Rwanda Student Elections</span>
         <span>Election information and voter services</span>
     </footer>
+    <script>
+        const message = document.getElementById('msg');
+        function show(text, type) {
+            message.textContent = text;
+            message.className = 'msg ' + type;
+        }
+        document.getElementById('requestForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const regNumber = document.getElementById('requestReg').value.trim();
+            try {
+                const response = await fetch('/api/activate/request', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ regNumber })
+                });
+                const data = await response.json().catch(() => ({}));
+                show(data.message || 'Could not request a verification code.', response.ok ? 'ok' : 'err');
+                if (response.ok) document.getElementById('confirmReg').value = regNumber;
+            } catch {
+                show('Cannot reach the server. Check your connection and try again.', 'err');
+            }
+        });
+        document.getElementById('confirmForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const regNumber = document.getElementById('confirmReg').value.trim();
+            try {
+                const response = await fetch('/api/activate/confirm', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        regNumber,
+                        code: document.getElementById('code').value.trim()
+                    })
+                });
+                const data = await response.json().catch(() => ({}));
+                show(data.message || 'Could not verify the account.', response.ok ? 'ok' : 'err');
+                if (response.ok) window.setTimeout(() => window.location.assign('voter-login.html'), 1200);
+            } catch {
+                show('Cannot reach the server. Check your connection and try again.', 'err');
+            }
+        });
+    </script>
 </body>
 
 </html>

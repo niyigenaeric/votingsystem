@@ -202,6 +202,49 @@ button.link {
   padding: 0;
 }
 
+.mail-dialog {
+  width: min(440px, calc(100% - 32px));
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  color: #1d2733;
+  box-shadow: 0 24px 70px rgba(16, 34, 48, .24);
+}
+
+.mail-dialog::backdrop {
+  background: rgba(11, 35, 47, .54);
+  backdrop-filter: blur(3px);
+}
+
+.mail-dialog-card {
+  position: relative;
+  padding: 26px;
+}
+
+.mail-dialog-card h2 {
+  margin-right: 28px;
+}
+
+.mail-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  margin: 0;
+  padding: 2px 8px;
+  background: transparent;
+  color: #5b6878;
+  font-size: 24px;
+}
+
+.mail-dialog-close:hover {
+  background: #eef3f8;
+  color: #1d2733;
+}
+
+.mail-dialog .msg {
+  margin-bottom: 0;
+}
+
 .back-button {
   display: inline-flex;
   min-height: 40px;
@@ -399,6 +442,19 @@ button.ghost {
   font-size: 14px;
 }
 
+.notification-mark-read {
+  width: auto;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.notification-read-status {
+  color: #17653a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .notification-item p,
 .notification-item time,
 .notification-empty,
@@ -536,6 +592,78 @@ code {
   text-align: left;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.position-access-badge {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.position-access-badge.is-allowed {
+  background: #e7f6ec;
+  color: #17653a;
+}
+
+.position-access-badge.is-not-allowed {
+  background: #fff0ed;
+  color: #9c3426;
+}
+
+.candidate-manifesto-toggle {
+  margin-top: 10px;
+  text-align: left;
+}
+
+.candidate-manifesto-toggle summary {
+  display: block;
+  color: #006887;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.candidate-manifesto-toggle summary::-webkit-details-marker {
+  display: none;
+}
+
+.candidate-manifesto-toggle summary:focus-visible {
+  outline: 2px solid rgba(0, 104, 135, .45);
+  outline-offset: 3px;
+}
+
+.manifesto-preview-text {
+  display: inline;
+  color: #354254;
+  font-weight: 500;
+}
+
+.candidate-manifesto-toggle .manifesto-more-label,
+.candidate-manifesto-toggle .manifesto-less-label {
+  color: #006887;
+  font-weight: 700;
+}
+
+.candidate-manifesto-toggle .manifesto-less-label,
+.candidate-manifesto-toggle[open] .manifesto-more-label {
+  display: none;
+}
+
+.candidate-manifesto-toggle[open] .manifesto-less-label {
+  display: inline;
+}
+
+.candidate-manifesto-toggle:not([open]) .candidate-manifesto {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  margin-top: 8px;
 }
 
 .candidate-votes {
@@ -780,6 +908,92 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.candidate-setup .schedule-scope-preview {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  border: 1px solid #cfe1eb;
+  border-radius: 7px;
+  background: #f0f7fa;
+  color: #17435b;
+  font-weight: 600;
+}
+
+.candidate-setup .schedule-scope-preview.schedule-scope-all {
+  border-color: #e6c982;
+  background: #fff8e6;
+  color: #684b0b;
+}
+
+.position-search-label {
+  margin: 14px 0 5px;
+  font-weight: 700;
+}
+
+.position-search-control {
+  position: relative;
+  width: 100%;
+  max-width: 430px;
+  margin-bottom: 16px;
+}
+
+.position-search-control svg {
+  position: absolute;
+  top: 50%;
+  left: 15px;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: #738196;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+  pointer-events: none;
+}
+
+.position-search {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 10px 16px 10px 43px;
+  border: 1px solid #cbd7e5;
+  border-radius: 999px;
+  background: #fff;
+  color: #1d2733;
+  box-shadow: 0 2px 7px rgba(27, 49, 73, .08);
+  font-size: 14px;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.position-search:focus {
+  border-color: #3b82f6;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .2);
+}
+
+.position-search::placeholder {
+  color: #8a96a6;
+}
+
+.position-search::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+html[data-theme="dark"] .position-search {
+  border-color: #43566b;
+  background: #111a23;
+  color: #edf3f8;
+}
+
+html[data-theme="dark"] .position-search:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, .24);
+}
+
+html[data-theme="dark"] .position-search-control svg {
+  stroke: #aab8c6;
+}
+
 .candidate-overview {
   margin-top: 18px;
 }
@@ -838,8 +1052,19 @@ code {
 }
 
 .position-edit-box input[type="text"],
-.position-edit-box input[type="file"] {
+.position-edit-box input[type="date"],
+.position-edit-box input[type="time"],
+.position-edit-box input[type="file"],
+.position-edit-box select {
   background: #fff;
+}
+
+.position-edit-box[hidden] {
+  display: none;
+}
+
+.position-edit-box h2 {
+  margin-top: 0;
 }
 
 .position-edit-actions {
@@ -964,6 +1189,9 @@ code {
 }
 
 .admin-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   min-height: 76px;
   padding: 12px max(24px, calc((100vw - 1380px) / 2));
   display: flex;
@@ -993,7 +1221,7 @@ code {
   margin: 4px 6px;
 }
 
-.admin-sidebar .admin-menu-toggle {
+.admin-menu-toggle {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1007,9 +1235,10 @@ code {
   background: #fff;
   color: #17435b;
   font-size: 18px;
+  cursor: pointer;
 }
 
-.admin-sidebar .admin-menu-toggle:hover {
+.admin-menu-toggle:hover {
   background: #f0f7fa;
 }
 
@@ -1062,6 +1291,7 @@ code {
   width: min(1240px, 100%);
   margin: 0 auto;
   padding: 18px 24px 60px;
+  transition: grid-template-columns .24s ease, gap .24s ease;
 }
 
 .admin-sidebar {
@@ -1076,20 +1306,24 @@ code {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 4px 12px rgba(30, 53, 82, .05);
+  overflow: hidden;
+  transition: opacity .18s ease, transform .24s ease, padding .24s ease, border-width .24s ease;
 }
 
-.sidebar-collapsed .admin-sidebar-text {
-  display: none;
+.sidebar-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+  gap: 0;
 }
 
-.sidebar-collapsed .admin-sidebar-link {
-  justify-content: center;
-  padding-right: 8px;
-  padding-left: 8px;
-}
-
-.sidebar-collapsed .admin-sidebar-footer {
-  justify-content: center;
+.sidebar-collapsed .admin-sidebar {
+  min-width: 0;
+  padding-right: 0;
+  padding-left: 0;
+  border-right-width: 0;
+  border-left-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
 }
 
 .admin-sidebar-title {
@@ -1146,6 +1380,14 @@ code {
   object-fit: cover;
   object-position: center;
   border-radius: inherit;
+}
+
+.admin-sidebar-text-icon {
+  display: grid;
+  place-items: center;
+  color: #005572;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .admin-sidebar-link.active .admin-sidebar-icon {
@@ -1770,6 +2012,10 @@ code {
     box-shadow: 0 4px 12px rgba(30, 53, 82, .05);
   }
 
+  .sidebar-collapsed .admin-sidebar {
+    display: none;
+  }
+
   .admin-sidebar-footer {
     margin-top: 16px;
   }
@@ -1903,6 +2149,34 @@ html[data-theme="dark"] .admin-archive {
   background-color: #1a2530;
 }
 
+html[data-theme="dark"] .candidate-setup .voter-admin-card,
+html[data-theme="dark"] .candidate-setup #positionForm,
+html[data-theme="dark"] .candidate-setup #candidateForm {
+  border-color: #354352;
+  background-color: #202c38;
+  color: #e6edf3;
+}
+
+html[data-theme="dark"] .candidate-setup .deadline-picker {
+  border-color: #4a5968;
+}
+
+html[data-theme="dark"] .candidate-setup .deadline-picker legend {
+  color: #edf3f8;
+}
+
+html[data-theme="dark"] .candidate-setup .schedule-scope-preview {
+  border-color: #426678;
+  background: #1a3442;
+  color: #c5e8f4;
+}
+
+html[data-theme="dark"] .candidate-setup .schedule-scope-preview.schedule-scope-all {
+  border-color: #846b32;
+  background: #3a3020;
+  color: #f0d998;
+}
+
 html[data-theme="dark"] h1,
 html[data-theme="dark"] h2,
 html[data-theme="dark"] h3,
@@ -1924,6 +2198,8 @@ html[data-theme="dark"] .admin-archive-hint,
 html[data-theme="dark"] .notification-item p,
 html[data-theme="dark"] .notification-item time,
 html[data-theme="dark"] .notification-empty,
+html[data-theme="dark"] .notification-read-status,
+html[data-theme="dark"] .candidate-setup label.sub,
 html[data-theme="dark"] .candidate-overview-details,
 html[data-theme="dark"] .candidate-card small,
 html[data-theme="dark"] .admin-sidebar-footer,
@@ -1931,11 +2207,57 @@ html[data-theme="dark"] .app-footer {
   color: #aab8c6;
 }
 
+html[data-theme="dark"] .candidate-manifesto-toggle summary {
+  color: #70c4de;
+}
+
+html[data-theme="dark"] .position-access-badge.is-allowed {
+  background: #173c2a;
+  color: #9ce0b5;
+}
+
+html[data-theme="dark"] .position-access-badge.is-not-allowed {
+  background: #492824;
+  color: #ffc0b5;
+}
+
+html[data-theme="dark"] .candidate-setup code {
+  background: #111a23;
+  color: #dce8f2;
+}
+
 html[data-theme="dark"] input,
 html[data-theme="dark"] textarea,
 html[data-theme="dark"] select {
   border-color: #4a5968;
   background-color: #111a23;
+  color: #edf3f8;
+}
+
+html[data-theme="dark"] .position-edit-box input[type="text"],
+html[data-theme="dark"] .position-edit-box input[type="date"],
+html[data-theme="dark"] .position-edit-box input[type="time"],
+html[data-theme="dark"] .position-edit-box input[type="file"],
+html[data-theme="dark"] .position-edit-box select {
+  border-color: #4a5968;
+  background-color: #111a23;
+  color: #edf3f8;
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] .position-edit-box input:disabled,
+html[data-theme="dark"] .position-edit-box select:disabled {
+  border-color: #3c4b59;
+  background-color: #263545;
+  color: #c2ced9;
+  opacity: 1;
+}
+
+html[data-theme="dark"] .position-edit-box .deadline-picker {
+  border-color: #4a5968;
+}
+
+html[data-theme="dark"] .position-edit-box .deadline-picker legend {
   color: #edf3f8;
 }
 
@@ -1991,7 +2313,7 @@ html[data-theme="dark"] .admin-position-table tbody tr:hover {
 }
 
 html[data-theme="dark"] .notification-toggle,
-html[data-theme="dark"] .admin-sidebar .admin-menu-toggle,
+html[data-theme="dark"] .admin-menu-toggle,
 html[data-theme="dark"] .theme-toggle {
   border-color: #465564;
   background: #202c38;
@@ -1999,7 +2321,7 @@ html[data-theme="dark"] .theme-toggle {
 }
 
 html[data-theme="dark"] .notification-toggle:hover,
-html[data-theme="dark"] .admin-sidebar .admin-menu-toggle:hover,
+html[data-theme="dark"] .admin-menu-toggle:hover,
 html[data-theme="dark"] .theme-toggle:hover {
   background: #2b3b4a;
 }
@@ -2067,6 +2389,28 @@ html[data-theme="dark"] .admin-published-label {
 }
 
 html[data-theme="dark"] .admin-dialog::backdrop {
+  background: rgba(0, 0, 0, .7);
+}
+
+html[data-theme="dark"] .mail-dialog {
+  background: #192631;
+  color: #edf3f8;
+}
+
+html[data-theme="dark"] .mail-dialog .sub {
+  color: #b6c8d8;
+}
+
+html[data-theme="dark"] .mail-dialog-close {
+  color: #b6c8d8;
+}
+
+html[data-theme="dark"] .mail-dialog-close:hover {
+  background: #263b49;
+  color: #edf3f8;
+}
+
+html[data-theme="dark"] .mail-dialog::backdrop {
   background: rgba(0, 0, 0, .7);
 }
 

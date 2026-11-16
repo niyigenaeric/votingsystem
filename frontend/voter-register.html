@@ -11,7 +11,7 @@
   <div class="wrap">
     <div class="card">
       <h1>Create a voter account</h1>
-      <p class="sub">Anyone may create an account. When you sign in, your registration number, full name, and email must match the official voter list to access voting.</p>
+      <p class="sub">Anyone may create an account. You must confirm your email using a link before you can sign in. Email confirmation does not by itself confirm voter-list eligibility.</p>
       <form id="registrationForm" class="form-validation">
         <label for="reg">Registration number</label>
         <input type="text" id="reg" maxlength="9" inputmode="numeric" autocomplete="username" placeholder="223007576" required>
@@ -39,9 +39,28 @@
         <button id="submit" type="submit">Create account</button>
       </form>
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
-      <p class="sub" style="margin:14px 0 0">Already have an account? <a href="voter-login.html">Sign in</a></p>
+      <p class="sub" style="margin:14px 0 0">
+        Didn't get a confirmation email?
+        <a id="openResendDialog" href="#resendVerification" aria-haspopup="dialog" aria-controls="resendDialog">Resend the link</a>
+      </p>
+      <p class="sub" style="margin:8px 0 0">Already have an account? <a href="voter-login.html">Sign in</a></p>
     </div>
   </div>
+  <dialog id="resendDialog" class="mail-dialog" aria-labelledby="resendTitle">
+    <div class="mail-dialog-card">
+        <button id="closeResendDialog" class="mail-dialog-close" type="button" aria-label="Close">×</button>
+        <h2 id="resendTitle">Resend confirmation link</h2>
+        <p class="sub">Enter the registration number and email address you used to create your account.</p>
+        <form id="resendForm">
+          <label for="resendReg">Registration number</label>
+          <input type="text" id="resendReg" maxlength="20" autocomplete="username" required>
+          <label for="resendEmail">Email address</label>
+          <input type="email" id="resendEmail" maxlength="150" autocomplete="email" required>
+          <button id="resendSubmit" type="submit">Resend confirmation link</button>
+        </form>
+        <div id="resendMsg" class="msg" role="status" aria-live="polite"></div>
+    </div>
+  </dialog>
   <footer class="app-footer">
     <span>University of Rwanda Student Elections</span>
     <span>Election information and voter services</span>
@@ -52,6 +71,10 @@
     const form = document.getElementById('registrationForm');
     const submit = document.getElementById('submit');
     const msg = document.getElementById('msg');
+    const resendForm = document.getElementById('resendForm');
+    const resendSubmit = document.getElementById('resendSubmit');
+    const resendMsg = document.getElementById('resendMsg');
+    const resendDialog = document.getElementById('resendDialog');
 
     function show(text, type) {
       msg.textContent = text;
@@ -59,6 +82,17 @@
     }
 
     form.addEventListener('invalid', () => form.classList.add('was-validated'), true);
+
+    const openResendDialog = document.getElementById('openResendDialog');
+    openResendDialog.addEventListener('click', event => {
+      event.preventDefault();
+      resendMsg.textContent = '';
+      resendMsg.className = 'msg';
+      resendDialog.showModal();
+      document.getElementById('resendReg').focus();
+    });
+    document.getElementById('closeResendDialog').addEventListener('click', () => resendDialog.close());
+    if (location.hash === '#resendVerification') openResendDialog.click();
 
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -87,12 +121,41 @@
           show(data.message || 'Could not create the account.', 'err');
           return;
         }
-        show(data.message, 'ok');
+        show(data.message, response.status === 201 && data.emailSent ? 'ok' : 'err');
+        if (response.status === 201) {
+          document.getElementById('resendReg').value = document.getElementById('reg').value.trim();
+          document.getElementById('resendEmail').value = document.getElementById('email').value.trim();
+        }
         form.reset();
       } catch {
         show('Cannot reach the server. Check your connection and try again.', 'err');
       } finally {
         submit.disabled = false;
+      }
+    });
+
+    resendForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      resendSubmit.disabled = true;
+      try {
+        const response = await fetch('/api/auth/email/resend', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            regNumber: document.getElementById('resendReg').value.trim(),
+            email: document.getElementById('resendEmail').value.trim()
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || 'Could not request a confirmation link.');
+        resendMsg.textContent = data.message;
+        resendMsg.className = 'msg ok';
+      } catch (error) {
+        resendMsg.textContent = error.message || 'Cannot reach the server. Check your connection and try again.';
+        resendMsg.className = 'msg err';
+      } finally {
+        resendSubmit.disabled = false;
       }
     });
   </script>

@@ -8,6 +8,7 @@ const { addAuditLog } = require('../db/audit');
 const { sendCode } = require('../db/mailer');
 const { verifyToken } = require('../middleware/auth');
 const { getVoterEligibility, matchesVoterAccount } = require('../db/voterEligibility');
+const { requiresSecondFactor } = require('../db/authRules');
 
 const router = express.Router();
 const SESSION_COOKIE = 'voting_session';
@@ -24,6 +25,7 @@ const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 const LOGIN_CODE_MINUTES = 10;
 const MAX_CODE_TRIES = 5;
+const MAX_VOTER_LOGIN_CODES = 3;
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 20,
@@ -61,12 +63,9 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
         const voterAccount = voterAccounts[0];
         if (voterAccount) {
-            const fullName = typeof req.body.fullName === 'string'
-                ? req.body.fullName.trim().replace(/\s+/g, ' ')
-                : '';
             const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-            if (!fullName || !email) {
-                return res.status(400).json({ message: 'Registration number, full name, email, and password are required.' });
+            if (!email) {
+                return res.status(400).json({ message: 'Registration number, email, and password are required.' });
             }
             const passwordOk = await bcrypt.compare(password, voterAccount.password_hash);
             if (voterAccount.is_locked) {
@@ -84,34 +83,68 @@ router.post('/login', loginLimiter, async (req, res) => {
                 await addAuditLog('LOGIN_FAILED', registrationNumber, 'Wrong voter-account password');
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
-            if (!matchesVoterAccount(voterAccount, { fullName, email })) {
-                await addAuditLog('LOGIN_FAILED', registrationNumber, 'Voter account details did not match');
+            if (!matchesVoterAccount(voterAccount, { email })) {
+                await addAuditLog('LOGIN_FAILED', registrationNumber, 'Voter account email did not match');
                 return res.status(401).json({ message: 'Invalid credentials' });
+            }
+            const [[emailConfirmation]] = await pool.query(
+                `SELECT EXISTS(
+                    SELECT 1 FROM voter_email_verification_tokens
+                    WHERE voter_account_id = ? AND used = 1
+                ) AS email_verified`,
+                [voterAccount.id]
+            );
+            if (!emailConfirmation.email_verified) {
+                await addAuditLog('VOTER_EMAIL_VERIFICATION_REQUIRED', registrationNumber,
+                    'Registration email has not been confirmed');
+                return res.status(403).json({
+                    code: 'EMAIL_NOT_VERIFIED',
+                    message: 'Confirm your account email using the link we sent before signing in.'
+                });
             }
 
             const [eligibleRows] = await pool.query(
-                `SELECT id, reg_number, full_name, contact_email, campus, role
+                `SELECT id, reg_number, full_name, contact_email, campus, role, is_activated
                  FROM students WHERE reg_number = ? AND role = 'voter'`,
                 [registrationNumber]
             );
             const eligibleVoter = eligibleRows[0];
             const eligibility = getVoterEligibility(voterAccount, eligibleVoter);
-            if (!eligibility.eligible) {
-                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, eligibility.message);
-            }
 
             await pool.query(
                 `UPDATE voter_accounts SET failed_attempts = 0, locked_until = NULL WHERE id = ?`,
                 [voterAccount.id]
             );
-            if (eligibility.eligible) {
-                await pool.query(
-                    `UPDATE students SET is_activated = 1, failed_attempts = 0, locked_until = NULL WHERE id = ?`,
-                    [eligibleVoter.id]
-                );
+            if (eligibility.eligible && !eligibleVoter.is_activated) {
+                await addAuditLog('VOTER_VERIFICATION_REQUIRED', registrationNumber,
+                    'Official-email activation is required before voting');
+            } else if (!eligibility.eligible) {
+                await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, eligibility.message);
             }
-            await addAuditLog('LOGIN_SUCCESS', registrationNumber, 'Role voter; eligibility will be shown on the ballot');
-            return issueSession({ ...voterAccount, role: 'voter' }, res);
+            const [[activeCodes]] = await pool.query(
+                'SELECT COUNT(*) AS count FROM voter_login_codes WHERE voter_account_id = ? AND used = 0 AND expires_at > UTC_TIMESTAMP()',
+                [voterAccount.id]
+            );
+            if (Number(activeCodes.count) >= MAX_VOTER_LOGIN_CODES) {
+                return res.status(429).json({ message: 'Too many sign-in codes were requested. Try again later.' });
+            }
+            const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+            await pool.query('UPDATE voter_login_codes SET used = 1 WHERE voter_account_id = ? AND used = 0', [voterAccount.id]);
+            await pool.query(
+                `INSERT INTO voter_login_codes (voter_account_id, code_hash, expires_at)
+                 VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE))`,
+                [voterAccount.id, await bcrypt.hash(code, 10), LOGIN_CODE_MINUTES]
+            );
+            try {
+                await sendCode(voterAccount.email, code, 'voter_login');
+            } catch (error) {
+                console.error('Voter sign-in email failed:', error.message);
+                await pool.query('UPDATE voter_login_codes SET used = 1 WHERE voter_account_id = ? AND used = 0', [voterAccount.id]);
+                await addAuditLog('VOTER_LOGIN_CODE_FAILED', registrationNumber, 'Email delivery failed');
+                return res.status(503).json({ message: 'The sign-in code could not be sent. Please try again later.' });
+            }
+            await addAuditLog('VOTER_LOGIN_CODE_SENT', registrationNumber, 'Code issued');
+            return res.json({ requiresCode: true, role: 'voter' });
         }
 
         const studentLookup = usernameLogin
@@ -131,6 +164,10 @@ router.post('/login', loginLimiter, async (req, res) => {
             await addAuditLog('LOGIN_FAILED', registrationNumber, 'Unknown or inactive account');
             return res.status(401).json({ message: 'Invalid credentials' });
         }
+        if (student.role === 'voter') {
+            await addAuditLog('LOGIN_FAILED', student.reg_number, 'Voter account must use voter sign-in');
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
         if (student.is_locked) {
             await addAuditLog('LOGIN_BLOCKED', student.reg_number, 'Account locked');
             return res.status(423).json({ message: 'Account temporarily locked. Try again later.' });
@@ -148,7 +185,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
 
         await pool.query('UPDATE students SET failed_attempts = 0, locked_until = NULL WHERE id = ?', [student.id]);
-        if (student.role !== 'admin') {
+        if (!requiresSecondFactor(student.role)) {
             await addAuditLog('LOGIN_SUCCESS', student.reg_number, `Role ${student.role}`);
             return issueSession(student, res);
         }
@@ -158,7 +195,7 @@ router.post('/login', loginLimiter, async (req, res) => {
             [student.id]
         );
         if (Number(activeCodes.count) >= 3) {
-            return res.status(429).json({ message: 'Too many administrator sign-in codes were requested. Try again later.' });
+            return res.status(429).json({ message: 'Too many privileged sign-in codes were requested. Try again later.' });
         }
         const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
         await pool.query("UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'admin_login' AND used = 0", [student.id]);
@@ -167,7 +204,7 @@ router.post('/login', loginLimiter, async (req, res) => {
             [student.id, await bcrypt.hash(code, 10), LOGIN_CODE_MINUTES]
         );
         try {
-            await sendCode(student.contact_email, code, 'admin_login');
+            await sendCode(student.contact_email, code, 'admin_login', student.username || registrationNumber);
         } catch (error) {
             console.error('Administrator sign-in email failed:', error.message);
             await pool.query("UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'admin_login' AND used = 0", [student.id]);
@@ -188,14 +225,47 @@ router.post('/login/verify', loginLimiter, async (req, res) => {
     const registrationNumber = String((usernameLogin ? body.username : body.regNumber) || '').trim();
     const code = String((req.body && req.body.code) || '').trim();
     if (!registrationNumber || !/^\d{6}$/.test(code)) {
-        return res.status(400).json({ message: 'Username and a 6-digit code are required.' });
+        return res.status(400).json({ message: 'Registration number or username and a 6-digit code are required.' });
     }
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+        if (!usernameLogin) {
+            const [[account]] = await connection.query(
+                'SELECT id, reg_number FROM voter_accounts WHERE reg_number = ? FOR UPDATE',
+                [registrationNumber]
+            );
+            if (!account) {
+                await connection.rollback();
+                return res.status(401).json({ message: 'Invalid or expired sign-in code.' });
+            }
+            const [[otp]] = await connection.query(
+                `SELECT id, code_hash, attempts FROM voter_login_codes
+                 WHERE voter_account_id = ? AND used = 0 AND expires_at > UTC_TIMESTAMP()
+                 ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+                [account.id]
+            );
+            if (!otp || Number(otp.attempts) >= MAX_CODE_TRIES) {
+                await connection.rollback();
+                return res.status(401).json({ message: 'Invalid or expired sign-in code.' });
+            }
+            if (!(await bcrypt.compare(code, otp.code_hash))) {
+                await connection.query(
+                    'UPDATE voter_login_codes SET attempts = attempts + 1, used = IF(attempts + 1 >= ?, 1, 0) WHERE id = ?',
+                    [MAX_CODE_TRIES, otp.id]
+                );
+                await connection.commit();
+                await addAuditLog('VOTER_LOGIN_FAILED', account.reg_number, 'Wrong sign-in code');
+                return res.status(401).json({ message: 'Invalid or expired sign-in code.' });
+            }
+            await connection.query('UPDATE voter_login_codes SET used = 1 WHERE id = ? AND used = 0', [otp.id]);
+            await connection.commit();
+            await addAuditLog('LOGIN_SUCCESS', account.reg_number, 'Role voter; sign-in code verified');
+            return issueSession({ id: account.id, reg_number: account.reg_number, role: 'voter' }, res);
+        }
         const [[student]] = await connection.query(
             `SELECT id, reg_number, role, is_activated, contact_email
-             FROM students WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role = 'admin' AND is_activated = 1 FOR UPDATE`,
+             FROM students WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role IN ('admin', 'auditor') AND is_activated = 1 FOR UPDATE`,
             [registrationNumber]
         );
         if (!student) {
@@ -223,7 +293,7 @@ router.post('/login/verify', loginLimiter, async (req, res) => {
         }
         await connection.query('UPDATE otp_codes SET used = 1 WHERE id = ? AND used = 0', [otp.id]);
         await connection.commit();
-        await addAuditLog('LOGIN_SUCCESS', student.reg_number, 'Role admin; second factor verified');
+        await addAuditLog('LOGIN_SUCCESS', student.reg_number, `Role ${student.role}; second factor verified`);
         issueSession(student, res);
     } catch (error) {
         await connection.rollback();

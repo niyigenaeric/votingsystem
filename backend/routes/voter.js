@@ -1,10 +1,10 @@
 const crypto = require('crypto');
 const express = require('express');
 const pool = require('../db/connection');
-const { addAuditLog } = require('../db/audit');
+const { addAuditLog, lockAuditLog, appendAuditLog, releaseAuditLogLock } = require('../db/audit');
 const { getTally } = require('../db/tally');
 const { closeExpiredPositions } = require('../db/election');
-const { canVoteForPosition, getPositionVotingMessage } = require('../db/candidateRules');
+const { canVoteForPosition, getPositionVotingMessage, isEligibleForPosition } = require('../db/candidateRules');
 const { voteRejection } = require('../db/votingRules');
 const { newVoteId } = require('../db/voteId');
 const { getVoterEligibility } = require('../db/voterEligibility');
@@ -30,7 +30,7 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
         const eligibilityMessage = eligible
             ? eligibility.message
             : eligibility.eligible
-                ? 'You are not allowed to vote because your voter account is not activated.'
+                ? 'You are not allowed to vote until you verify your official voter-list email.'
                 : eligibility.message;
         const [receipts] = eligible
             ? await pool.query('SELECT position_id FROM voter_receipts WHERE student_id = ?', [student.id])
@@ -38,8 +38,8 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
         const votedPositionIds = receipts.map(receipt => Number(receipt.position_id));
         const tally = await getTally({ includeArchived: false });
         const [positions] = await pool.query(
-            `SELECT id, campus, DATE_FORMAT(DATE_ADD(voting_starts_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i') AS voting_starts_at,
-                    DATE_FORMAT(DATE_ADD(voting_ends_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i') AS voting_ends_at
+            `SELECT id, campus, DATE_FORMAT(DATE_ADD(voting_starts_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s+02:00') AS voting_starts_at,
+                    DATE_FORMAT(DATE_ADD(voting_ends_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s+02:00') AS voting_ends_at
              FROM positions WHERE archived_at IS NULL`
         );
         const positionById = new Map(positions.map(position => [Number(position.id), position]));
@@ -59,6 +59,11 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
                     status: position.status,
                     hasVoted
                 });
+                const allowedForPosition = isEligibleForPosition({
+                    eligible,
+                    voterCampus: student && student.campus,
+                    positionCampus
+                });
                 const votingMessage = getPositionVotingMessage({
                     eligible,
                     voterCampus: student && student.campus,
@@ -72,6 +77,7 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
                     campus: positionCampus,
                     status: position.status,
                     published: position.published,
+                    allowedForPosition,
                     canVote,
                     votingMessage,
                     votingStartsAt: schedule.voting_starts_at,
@@ -112,7 +118,7 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
     const receiptCode = crypto.randomBytes(16).toString('hex').toUpperCase();
     const receiptHash = crypto.createHash('sha256').update(receiptCode).digest('hex');
     const connection = await pool.getConnection();
-    let committed = false;
+    let auditLockAcquired = false;
     try {
         await connection.beginTransaction();
         const [[student]] = await connection.query(
@@ -183,21 +189,14 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
             'INSERT INTO voter_receipts (student_id, position_id, receipt_hash) VALUES (?, ?, ?)',
             [student.id, positionId, receiptHash]
         );
+        await lockAuditLog(connection);
+        auditLockAcquired = true;
+        await appendAuditLog(connection, 'VOTE_CAST', 'voter', `position=${positionId}`);
         await connection.commit();
-        committed = true;
-        let message = 'Your vote has been recorded.';
-        try {
-            await addAuditLog('VOTE_CAST', 'voter', `position=${positionId}`);
-        } catch (auditError) {
-            console.error('Vote was recorded but its audit entry could not be written:', auditError.message);
-            message = 'Your vote was recorded, but its audit entry could not be written. Contact an election administrator.';
-        }
-        res.status(201).json({ message, receiptCode });
+        res.status(201).json({ message: 'Your vote has been recorded.', receiptCode });
     } catch (error) {
-        if (!committed) {
-            try { await connection.rollback(); } catch (rollbackError) {
-                console.error('Vote transaction rollback failed:', rollbackError.message);
-            }
+        try { await connection.rollback(); } catch (rollbackError) {
+            console.error('Vote transaction rollback failed:', rollbackError.message);
         }
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ message: 'You have already voted for this position.' });
@@ -205,6 +204,7 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
         console.error(error.message);
         res.status(500).json({ message: 'Could not record your vote.' });
     } finally {
+        if (auditLockAcquired) await releaseAuditLogLock(connection);
         connection.release();
     }
 });

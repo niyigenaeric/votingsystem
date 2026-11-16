@@ -3,7 +3,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db/connection');
-const { addAuditLog } = require('../db/audit');
+const { addAuditLog, lockAuditLog, appendAuditLog, releaseAuditLogLock } = require('../db/audit');
 const { sendCode } = require('../db/mailer');
 
 const router = express.Router();
@@ -51,7 +51,8 @@ router.post('/activate/confirm', limiter, async (req, res) => {
         const reg = String(b.regNumber || '').trim();
         const code = String(b.code || '').trim();
         if (!REG_RE.test(reg) || !/^\d{6}$/.test(code)) return fail();
-        if (!passwordOk(b.password)) {
+        const hasPassword = typeof b.password === 'string' && b.password.length > 0;
+        if (hasPassword && !passwordOk(b.password)) {
             return res.status(400).json({ message: 'Password must be 10 to 72 characters and include a letter and a number.' });
         }
         const [rows] = await pool.query("SELECT id FROM students WHERE reg_number = ? AND role = 'voter' AND is_activated = 0", [reg]);
@@ -66,21 +67,43 @@ router.post('/activate/confirm', limiter, async (req, res) => {
             return fail();
         }
 
-        const hash = await bcrypt.hash(b.password, 12);
+        const hash = hasPassword ? await bcrypt.hash(b.password, 12) : null;
         const conn = await pool.getConnection();
+        let auditLockAcquired = false;
         try {
             await conn.beginTransaction();
-            const [u] = await conn.query('UPDATE students SET password_hash = ?, is_activated = 1, failed_attempts = 0 WHERE id = ? AND is_activated = 0', [hash, sid]);
+            const [[currentStudent]] = await conn.query(
+                "SELECT id FROM students WHERE id = ? AND role = 'voter' AND is_activated = 0 FOR UPDATE",
+                [sid]
+            );
+            const [[currentOtp]] = await conn.query(
+                `SELECT id, code_hash, attempts FROM otp_codes
+                 WHERE student_id = ? AND purpose = 'activation' AND used = 0
+                   AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+                [sid]
+            );
+            if (!currentStudent || !currentOtp || Number(currentOtp.attempts) >= MAX_TRIES
+                || !(await bcrypt.compare(code, currentOtp.code_hash))) {
+                await conn.rollback();
+                return fail();
+            }
+            const updateSql = hasPassword
+                ? 'UPDATE students SET password_hash = ?, is_activated = 1, failed_attempts = 0 WHERE id = ? AND is_activated = 0'
+                : 'UPDATE students SET is_activated = 1, failed_attempts = 0 WHERE id = ? AND is_activated = 0';
+            const [u] = await conn.query(updateSql, hasPassword ? [hash, sid] : [sid]);
             if (!u.affectedRows) { await conn.rollback(); return fail(); }
-            await conn.query("UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'activation'", [sid]);
+            await conn.query('UPDATE otp_codes SET used = 1 WHERE id = ?', [currentOtp.id]);
+            await lockAuditLog(conn);
+            auditLockAcquired = true;
+            await appendAuditLog(conn, 'ACCOUNT_ACTIVATED', reg, 'Official-email code verified');
             await conn.commit();
         } catch (e) {
             await conn.rollback();
             throw e;
         } finally {
+            if (auditLockAcquired) await releaseAuditLogLock(conn);
             conn.release();
         }
-        await addAuditLog('ACCOUNT_ACTIVATED', reg, 'Account activated');
         res.json({ message: 'Account activated. You can now sign in.' });
     } catch (e) {
         console.error(e.message);

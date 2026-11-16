@@ -1,0 +1,74 @@
+{
+  "planHash": "df7d9e8c8ea9797c8c3defe438acd513244dc614ea59d3fea29055d75f1bc938",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-10-26T17:11:59.6037780Z",
+  "retryCount": 0,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E backend@1.0.0 test\r\n\u003E node --test\r\n\r\n\u2714 removes JPEG EXIF, IPTC, and comment segments without changing image data (3.9585ms)\r\n\u2714 removes PNG text and EXIF chunks (1.2219ms)\r\n\u2714 removes WebP EXIF/XMP chunks and clears feature flags (1.2832ms)\r\n\u2714 converts Rwanda local schedule time to UTC for database storage (6.4558ms)\r\n\u2714 handles Kigali midnight when conversion crosses to the previous UTC date (0.8ms)\r\n\u2714 rejects invalid and ambiguous local date-time values (0.5537ms)\r\n\u2714 accepts an eligible ballot for an open position (4.317ms)\r\n\u2714 rejects a second ballot for the same position (1.3189ms)\r\n\u2714 rejects voting for a position assigned to another campus (0.6176ms)\r\n\u2714 rejects a closed position (0.6179ms)\r\n\u2139 tests 10\r\n\u2139 suites 0\r\n\u2139 pass 10\r\n\u2139 fail 0\r\n\u2139 cancelled 0\r\n\u2139 skipped 0\r\n\u2139 todo 0\r\n\u2139 duration_ms 373.8339\r\n",
+        "durationMs": 2925,
+        "testResults": {
+          "testFramework": "unknown",
+          "runnerDetectedFrom": "none",
+          "testsTotal": 0,
+          "testsPassed": 0,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": true
+        }
+      },
+      {
+        "name": "health-endpoint-200",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\n{\u0022message\u0022:\u0022Voting system backend is running\u0022,\u0022database\u0022:\u0022connected\u0022,\u0022students\u0022:1}\n--- server output ---\n\u25C7 injected env (5) from .env\r\n\u25C7 injected env (0) from .env\r\nServer running on port 5102\r\n",
+        "durationMs": 2174
+      }
+    ],
+    "executions": [
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "test"
+        ],
+        "cwd": "C:\\votingsystem\\backend",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "health-endpoint-200",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\node.EXE",
+        "args": [
+          "server.js"
+        ],
+        "cwd": "C:\\votingsystem\\backend",
+        "env": {
+          "PORT": "5102"
+        },
+        "prependPath": [],
+        "platform": "win32"
+      }
+    ]
+  }
+}

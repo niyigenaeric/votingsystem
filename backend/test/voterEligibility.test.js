@@ -8,9 +8,10 @@ const rosterEntry = {
     contact_email: 'JANE@example.com'
 };
 
-test('matches submitted sign-in identity with the created account', () => {
-    assert.equal(matchesVoterAccount(account, { fullName: '  JANE Doe ', email: 'JANE@example.com' }), true);
-    assert.equal(matchesVoterAccount(account, { fullName: 'Other Person', email: 'jane@example.com' }), false);
+test('matches voter sign-in using the registered email without requiring a name', () => {
+    assert.equal(matchesVoterAccount(account, { email: 'JANE@example.com' }), true);
+    assert.equal(matchesVoterAccount(account, { email: 'other@example.com' }), false);
+    assert.equal(matchesVoterAccount(account, {}), false);
 });
 
 test('requires voter account name and email to match the official roster', () => {

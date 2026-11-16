@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Confirm voter email</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="theme-toggle.js" defer></script>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>Confirm your email</h1>
+      <p class="sub">Confirm that you can access this email address to activate your voter account. This is separate from checking whether you are eligible on the official voter list.</p>
+      <button id="confirmEmail" type="button">Confirm email address</button>
+      <div id="msg" class="msg" role="status" aria-live="polite"></div>
+      <p class="sub"><a href="voter-login.html">Go to voter sign in</a></p>
+    </section>
+  </main>
+  <footer class="app-footer">
+    <span>University of Rwanda Student Elections</span>
+    <span>Email confirmation</span>
+  </footer>
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const button = document.getElementById('confirmEmail');
+    const msg = document.getElementById('msg');
+    if (!/^[a-f0-9]{64}$/.test(token)) {
+      button.disabled = true;
+      msg.textContent = 'This confirmation link is invalid or expired. Request a new one from the account creation page.';
+      msg.className = 'msg err';
+    }
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/auth/email/verify', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || 'Could not confirm this email address.');
+        history.replaceState(null, '', location.pathname);
+        msg.textContent = data.message + ' Taking you to sign in...';
+        msg.className = 'msg ok';
+        window.setTimeout(() => window.location.replace('voter-login.html'), 1800);
+      } catch (error) {
+        button.disabled = false;
+        msg.textContent = error.message || 'Cannot reach the server. Check your connection and try again.';
+        msg.className = 'msg err';
+      }
+    });
+  </script>
+</body>
+</html>

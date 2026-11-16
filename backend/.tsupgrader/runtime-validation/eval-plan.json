@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-10-26T19:07:36+02:00",
+  "generatedOnPlatform": "win32",
+  "projectType": "server",
+  "setup": [],
+  "assertions": [
+    {
+      "name": "tests-pass",
+      "kind": "process",
+      "command": "npm",
+      "args": ["test"],
+      "cwd": ".",
+      "verificationMethod": "test-results",
+      "expected": "0",
+      "timeoutSeconds": 300
+    },
+    {
+      "name": "health-endpoint-200",
+      "kind": "http-probe",
+      "startCommand": "node",
+      "startArgs": ["server.js"],
+      "cwd": ".",
+      "env": {
+        "PORT": "5102"
+      },
+      "url": "http://localhost:5102/api/health",
+      "verificationMethod": "http-status",
+      "expected": "200",
+      "timeoutSeconds": 60
+    }
+  ]
+}

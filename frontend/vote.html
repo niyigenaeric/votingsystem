@@ -30,18 +30,25 @@
                             <h2 id="notificationHeading">Election notifications</h2>
                             <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
                         </div>
-                        <div data-notification-list role="status" aria-live="polite"></div>
+                        <div data-notification-list role="region" aria-label="Election notification list" aria-live="polite"></div>
                     </section>
                 </div>
                 <button class="link" id="logout">Sign out</button>
             </div>
         </div>
         <div id="eligibility" class="msg" role="status" aria-live="polite"></div>
+        <label class="position-search-label" for="voterPositionSearch">Search election positions</label>
+        <div class="position-search-control">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg>
+            <input type="search" id="voterPositionSearch" class="position-search" placeholder="Search positions or campuses">
+        </div>
+        <p id="voterSearchEmpty" class="admin-empty" hidden>No positions match your search.</p>
         <div id="info" class="msg"></div>
         <div id="ballot"></div>
     </div>
     <script src="back.js"></script>
     <script src="notifications.js"></script>
+    <script src="time.js"></script>
     <script>
         if (sessionStorage.getItem('role') !== 'voter') window.location.href = 'index.html';
         async function signOut() {
@@ -58,8 +65,22 @@
         document.getElementById('logout').addEventListener('click', signOut);
         const info = document.getElementById('info');
         const sub = document.getElementById('sub');
+        const ballot = document.getElementById('ballot');
+        const positionSearch = document.getElementById('voterPositionSearch');
+        const searchEmpty = document.getElementById('voterSearchEmpty');
         function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
         function notice(text) { info.textContent = text; info.className = 'msg ok'; }
+        function applyPositionSearch() {
+            const query = positionSearch.value.trim().toLocaleLowerCase();
+            let matched = 0;
+            ballot.querySelectorAll('[data-position-search]').forEach(card => {
+                const visible = card.dataset.positionSearch.includes(query);
+                card.hidden = !visible;
+                if (visible) matched++;
+            });
+            searchEmpty.hidden = !query || matched > 0;
+        }
+        positionSearch.addEventListener('input', applyPositionSearch);
         async function castVote(position, candidate, button) {
             if (!confirm('Record your vote for ' + candidate.name + ' in ' + position.title + '? You cannot change it afterward.')) return;
             button.disabled = true;
@@ -90,8 +111,15 @@
         }
         function renderPosition(position, allowedToVote) {
             const card = el('div', 'card');
+            card.dataset.positionSearch = (position.title + ' ' + (position.campus || 'all campuses')).toLocaleLowerCase();
             card.appendChild(el('h2', '', position.title + (position.campus ? ' — ' + position.campus : '')));
-            if (position.votingEndsAt) card.appendChild(el('p', 'sub', 'Voting closes at ' + position.votingEndsAt.replace('T', ' ') + ' Kigali time.'));
+            const accessBadge = el('span', 'position-access-badge ' + (position.allowedForPosition ? 'is-allowed' : 'is-not-allowed'),
+                position.allowedForPosition ? 'Allowed to vote' : 'Not allowed to vote');
+            accessBadge.setAttribute('aria-label', position.allowedForPosition
+                ? 'You are allowed to vote for this position'
+                : 'You are not allowed to vote for this position');
+            card.appendChild(accessBadge);
+            if (position.votingEndsAt) card.appendChild(el('p', 'sub', 'Voting closes at ' + formatRwandaDateTime(position.votingEndsAt) + '.'));
             if (position.status === 'setup') card.appendChild(el('p', 'sub', 'Voting has not opened for this position.'));
             if (position.status === 'closed') card.appendChild(el('p', 'sub', 'Voting is closed for this position.'));
             card.appendChild(el('p', 'msg ' + (position.canVote ? 'ok' : ''), position.votingMessage));
@@ -106,8 +134,24 @@
                 img.alt = 'Photo of ' + candidate.name;
                 img.loading = 'lazy';
                 item.append(img, el('h4', '', candidate.name));
-                item.appendChild(el('p', 'candidate-manifesto',
-                    candidate.manifesto || 'No manifesto has been provided yet.'));
+                const manifestoText = (candidate.manifesto || 'No manifesto has been provided yet.').replace(/\s+/g, ' ').trim();
+                const previewText = manifestoText.length > 120 ? manifestoText.slice(0, 120).trim() + '…' : manifestoText;
+                const manifesto = document.createElement('details');
+                manifesto.className = 'candidate-manifesto-toggle';
+                const manifestoSummary = document.createElement('summary');
+                const summaryText = document.createElement('span');
+                summaryText.className = 'manifesto-preview-text';
+                summaryText.textContent = previewText;
+                const moreLabel = document.createElement('span');
+                moreLabel.className = 'manifesto-more-label';
+                moreLabel.textContent = ' See more';
+                const lessLabel = document.createElement('span');
+                lessLabel.className = 'manifesto-less-label';
+                lessLabel.textContent = ' See less';
+                manifestoSummary.append(summaryText, moreLabel, lessLabel);
+                manifesto.appendChild(manifestoSummary);
+                manifesto.appendChild(el('p', 'candidate-manifesto', candidate.manifesto || 'No manifesto has been provided yet.'));
+                item.appendChild(manifesto);
                 if (position.published) {
                     item.appendChild(el('p', 'candidate-votes', candidate.votes + ' votes'));
                 }
@@ -142,11 +186,18 @@
                 const eligibility = document.getElementById('eligibility');
                 eligibility.textContent = d.eligibilityMessage;
                 eligibility.className = 'msg ' + (d.allowedToVote ? 'ok' : 'err');
+                if (d.eligibilityMessage.includes('verify your official voter-list email')) {
+                    const verifyLink = document.createElement('a');
+                    verifyLink.href = 'activate.html';
+                    verifyLink.textContent = ' Verify your account';
+                    eligibility.appendChild(verifyLink);
+                }
                 const openPositions = d.positions.filter(position => position.status === 'open');
                 const publishedPositions = d.positions.filter(position => position.status === 'closed' && position.published);
                 const waitingPositions = d.positions.filter(position => position.status === 'setup');
                 const closedPositions = d.positions.filter(position => position.status === 'closed' && !position.published);
                 d.positions.forEach(position => renderPosition(position, d.allowedToVote));
+                applyPositionSearch();
                 const messages = [];
                 const votedCount = d.positions.filter(position => position.hasVoted).length;
                 if (votedCount) messages.push('You have voted in ' + votedCount + (votedCount === 1 ? ' position.' : ' positions.'));

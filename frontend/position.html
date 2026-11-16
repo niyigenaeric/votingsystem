@@ -33,7 +33,7 @@
                             <h2 id="notificationHeading">Election notifications</h2>
                             <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
                         </div>
-                        <div data-notification-list role="status" aria-live="polite"></div>
+                        <div data-notification-list role="region" aria-label="Election notification list" aria-live="polite"></div>
                     </section>
                 </div>
                 <button class="link" id="logout">Sign out</button>
@@ -43,9 +43,48 @@
             <p class="sub" id="entryStatus" style="margin-top:0"></p>
             <div class="position-management-actions">
                 <button type="button" id="add" style="display:none">Set deadline / add candidate</button>
+                <button type="button" id="editPosition" style="display:none">Edit position details</button>
                 <button type="button" class="link" id="closeEntry" style="display:none">Close candidate entry</button>
+                <button type="button" id="archivePosition" style="display:none">Archive position</button>
+                <button type="button" id="restorePosition" style="display:none">Restore position</button>
+                <button type="button" class="danger" id="deletePosition" style="display:none">Delete position</button>
             </div>
             <div id="msg" class="msg"></div>
+            <form id="positionEditBox" class="position-edit-box" hidden>
+                <h2>Edit position details</h2>
+                <label for="positionTitleInput">Position or group name</label>
+                <input type="text" id="positionTitleInput" maxlength="100" required>
+                <label for="positionCampusInput">Campus</label>
+                <select id="positionCampusInput">
+                    <option value="">All campuses (university-wide)</option>
+                </select>
+                <fieldset class="deadline-picker">
+                    <legend>Candidate-entry deadline</legend>
+                    <div class="deadline-picker-fields">
+                        <div><label for="editEntryDate">Last date</label><input type="date" id="editEntryDate" required></div>
+                        <div><label for="editEntryTime">Time</label><input type="time" id="editEntryTime" required></div>
+                    </div>
+                </fieldset>
+                <fieldset class="deadline-picker">
+                    <legend>Scheduled voting start</legend>
+                    <div class="deadline-picker-fields">
+                        <div><label for="editStartDate">Voting date</label><input type="date" id="editStartDate" required></div>
+                        <div><label for="editStartTime">Start time</label><input type="time" id="editStartTime" required></div>
+                    </div>
+                </fieldset>
+                <fieldset class="deadline-picker">
+                    <legend>Scheduled voting end</legend>
+                    <div class="deadline-picker-fields">
+                        <div><label for="editEndDate">End date</label><input type="date" id="editEndDate" required></div>
+                        <div><label for="editEndTime">End time</label><input type="time" id="editEndTime" required></div>
+                    </div>
+                </fieldset>
+                <p class="sub" id="positionEditHelp">Schedule times use Rwanda local time (Africa/Kigali). Position details can only be edited before voting starts.</p>
+                <div class="position-edit-actions">
+                    <button type="submit" id="savePosition">Save position details</button>
+                    <button type="button" class="link" id="cancelPositionEdit">Cancel</button>
+                </div>
+            </form>
             <div id="editBox" class="position-edit-box" style="display:none">
                 <h2>Update candidate</h2>
                 <label for="eName">Name</label>
@@ -68,6 +107,7 @@
     </footer>
     <script src="back.js"></script>
     <script src="notifications.js"></script>
+    <script src="time.js"></script>
     <script>
         const role = sessionStorage.getItem('role');
         if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
@@ -117,11 +157,18 @@
                             ? 'The scheduled voting start time has arrived; candidate details are locked.'
                             : 'Candidate entry is closed. Existing candidates can still be updated before voting starts.'
                     : pos.candidateEntryDeadline
-                        ? 'Candidate entry is open until ' + pos.candidateEntryDeadline.replace('T', ' ') + '. Existing candidates can be updated until voting starts.'
+                        ? 'Candidate entry is open until ' + formatRwandaDateTime(pos.candidateEntryDeadline) + '. Existing candidates can be updated until voting starts.'
                         : 'Set a candidate-entry deadline before adding candidates.';
                 $('add').style.display = role === 'admin' && entryOpen ? '' : 'none';
                 $('add').textContent = pos.candidateEntryDeadline ? 'Add candidate' : 'Set deadline / add candidate';
+                $('editPosition').style.display = role === 'admin' && pos.canReschedule && !pos.archived ? '' : 'none';
+                $('editPosition').textContent = pos.votingStartReached
+                    ? 'Reschedule election'
+                    : 'Edit position details';
                 $('closeEntry').style.display = role === 'admin' && entryOpen ? '' : 'none';
+                $('archivePosition').style.display = role === 'admin' && pos.status === 'closed' && !pos.archived ? '' : 'none';
+                $('restorePosition').style.display = role === 'admin' && pos.archived ? '' : 'none';
+                $('deletePosition').style.display = role === 'admin' && pos.status !== 'open' ? '' : 'none';
                 const list = $('list'); list.replaceChildren();
                 if (!pos.candidates.length) {
                     list.appendChild(el('p', 'position-empty',
@@ -172,7 +219,7 @@
             if (pos.status === 'open') {
                 const remaining = pos.votingEndsAt ? new Date(pos.votingEndsAt).getTime() - Date.now() : NaN;
                 $('votingCountdown').textContent = Number.isFinite(remaining) && remaining > 0
-                    ? 'Voting closes at ' + pos.votingEndsAt.replace('T', ' ') + ' Kigali time.'
+                    ? 'Voting closes at ' + formatRwandaDateTime(pos.votingEndsAt) + '.'
                     : 'Voting is closing at its scheduled end time.';
                 return;
             }
@@ -193,11 +240,76 @@
             $('votingCountdown').textContent = 'Voting starts in ' + days + ' days, ' + hours + ' hours, '
                 + minutes + ' minutes, ' + seconds + ' seconds.';
         }
+        function setDateTimeInputs(dateId, timeId, value) {
+            const date = value ? value.slice(0, 10) : '';
+            const time = value ? value.slice(11, 16) : '';
+            $(dateId).value = date;
+            $(timeId).value = time;
+        }
+        $('editPosition').addEventListener('click', async () => {
+            try {
+                const campuses = await call('/api/admin/campuses');
+                const campusSelect = $('positionCampusInput');
+                campusSelect.replaceChildren(new Option('All campuses (university-wide)', ''));
+                campuses.forEach(campus => campusSelect.appendChild(new Option(campus, campus)));
+                $('positionTitleInput').value = pos.title;
+                campusSelect.value = pos.campus || '';
+                setDateTimeInputs('editEntryDate', 'editEntryTime', pos.candidateEntryDeadline);
+                setDateTimeInputs('editStartDate', 'editStartTime', pos.votingStartsAt);
+                setDateTimeInputs('editEndDate', 'editEndTime', pos.votingEndsAt);
+                const datesOnly = pos.votingStartReached;
+                $('positionTitleInput').disabled = datesOnly;
+                campusSelect.disabled = datesOnly;
+                $('positionEditHelp').textContent = datesOnly
+                    ? 'The scheduled start has passed, but voting has not opened and no votes are recorded. Set a new future schedule; existing candidates will remain unchanged. Candidate details remain locked until the new start time.'
+                    : 'Schedule times use Rwanda local time (Africa/Kigali). Position details can be edited before voting starts.';
+                $('positionEditBox').querySelector('h2').textContent = datesOnly
+                    ? 'Reschedule election'
+                    : 'Edit position details';
+                $('savePosition').textContent = datesOnly
+                    ? 'Save new schedule'
+                    : 'Save position details';
+                $('positionEditBox').hidden = false;
+                $('positionTitleInput').focus();
+            } catch (error) {
+                show(error.message, 'err');
+            }
+        });
+        $('cancelPositionEdit').addEventListener('click', () => {
+            $('positionEditBox').hidden = true;
+        });
+        $('positionEditBox').addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!$('positionEditBox').reportValidity()) return;
+            const button = $('savePosition');
+            button.disabled = true;
+            try {
+                await call('/api/admin/positions/' + pos.id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: $('positionTitleInput').value.trim(),
+                        campus: $('positionCampusInput').value,
+                        deadline: $('editEntryDate').value + 'T' + $('editEntryTime').value,
+                        votingStart: $('editStartDate').value + 'T' + $('editStartTime').value,
+                        votingEnd: $('editEndDate').value + 'T' + $('editEndTime').value
+                    })
+                });
+                $('positionEditBox').hidden = true;
+                show('Position details updated.', 'ok');
+                await load();
+            } catch (error) {
+                show(error.message, 'err');
+            } finally {
+                button.disabled = false;
+            }
+        });
         setInterval(updateVotingCountdown, 1000);
         $('add').addEventListener('click', () => {
             if (confirm('Add a new candidate to ' + pos.title + '?')) {
                 const campus = pos.campus ? '&campus=' + encodeURIComponent(pos.campus) : '';
-                window.location.href = 'candidate.html?position=' + encodeURIComponent(pos.title) + campus;
+                window.location.href = 'candidate.html?positionId=' + encodeURIComponent(pos.id)
+                    + '&position=' + encodeURIComponent(pos.title) + campus;
             }
         });
         $('closeEntry').addEventListener('click', async () => {
@@ -206,6 +318,30 @@
                 await call('/api/admin/positions/' + pos.id + '/candidate-entry/close', { method: 'POST' });
                 show('Candidate entry closed for ' + pos.title + '. Voting status is unchanged.', 'ok');
                 await load();
+            } catch (e) { show(e.message, 'err'); }
+        });
+        $('archivePosition').addEventListener('click', async () => {
+            if (!confirm('Archive ' + pos.title + '? The position will be hidden from voter ballots, but its candidates, votes, results, and history will be retained and it can be restored.')) return;
+            try {
+                await call('/api/admin/positions/' + pos.id + '/archive', { method: 'POST' });
+                show('Position archived. Its election records have been retained.', 'ok');
+                await load();
+            } catch (e) { show(e.message, 'err'); }
+        });
+        $('restorePosition').addEventListener('click', async () => {
+            if (!confirm('Restore ' + pos.title + ' to Election Control? Voting will remain closed.')) return;
+            try {
+                await call('/api/admin/positions/' + pos.id + '/restore', { method: 'POST' });
+                show('Position restored. Voting remains closed.', 'ok');
+                await load();
+            } catch (e) { show(e.message, 'err'); }
+        });
+        $('deletePosition').addEventListener('click', async () => {
+            if (!confirm('Permanently delete ' + pos.title + (pos.campus ? ' — ' + pos.campus : '')
+                + ' and its candidates? This cannot be undone. Positions with recorded votes or voter receipts cannot be deleted and should be archived.')) return;
+            try {
+                await call('/api/admin/positions/' + pos.id, { method: 'DELETE' });
+                window.location.href = 'admin.html';
             } catch (e) { show(e.message, 'err'); }
         });
         $('cancel').addEventListener('click', () => { editing = null; $('editBox').style.display = 'none'; });

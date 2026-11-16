@@ -1,4 +1,5 @@
 const pool = require('./connection');
+const { verifyPublishedResults } = require('./resultIntegrity');
 
 async function getTally({ includeArchived = true } = {}) {
     const [pos] = await pool.query(
@@ -33,7 +34,18 @@ async function getTally({ includeArchived = true } = {}) {
                 id: c.id,
                 name: c.full_name,
                 votes: p.status === 'closed' ? (counts.get(String(c.id)) || 0) : null
-            }))
+            })),
+            integrity: p.results_published
+                ? (p.status === 'closed' && verifyPublishedResults(
+                    p.results_hash,
+                    p.id,
+                    p.title,
+                    cands.filter(c => c.position_id === p.id).map(c => ({
+                        id: c.id,
+                        votes: counts.get(String(c.id)) || 0
+                    })).sort((a, b) => Number(a.id) - Number(b.id))
+                ) ? 'verified' : 'mismatch')
+                : null
         }))
     };
 }

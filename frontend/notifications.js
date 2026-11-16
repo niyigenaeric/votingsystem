@@ -8,6 +8,9 @@
   const count = center.querySelector('[data-notification-count]');
   const refresh = center.querySelector('[data-notification-refresh]');
 
+  let loading = false;
+  let loadPending = false;
+
   function closePanel() {
     panel.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
@@ -15,13 +18,14 @@
 
   function render(notifications) {
     list.replaceChildren();
-    count.textContent = String(notifications.length);
-    count.hidden = notifications.length === 0;
+    const unreadCount = notifications.filter(notification => !notification.isRead).length;
+    count.textContent = String(unreadCount);
+    count.hidden = unreadCount === 0;
     toggle.setAttribute(
       'aria-label',
-      notifications.length
-        ? `Election notifications, ${notifications.length} upcoming`
-        : 'Election notifications'
+      unreadCount
+        ? `Election notifications, ${unreadCount} unread`
+        : 'Election notifications, all caught up'
     );
 
     if (!notifications.length) {
@@ -35,6 +39,15 @@
       item.appendChild(element('h3', '', title));
       item.appendChild(element('p', '', `Scheduled to start in ${formatTimeUntil(notification.minutesUntil)}.`));
       item.appendChild(element('time', '', formatStartTime(notification.startsAt)));
+      if (notification.isRead) {
+        item.classList.add('is-read');
+        item.appendChild(element('p', 'notification-read-status', 'Read'));
+      } else {
+        const markRead = element('button', 'notification-mark-read', 'Mark as read');
+        markRead.type = 'button';
+        markRead.addEventListener('click', () => markNotificationRead(notification.id, markRead));
+        item.appendChild(markRead);
+      }
       list.appendChild(item);
     });
   }
@@ -66,6 +79,11 @@
   }
 
   async function loadNotifications() {
+    if (loading) {
+      loadPending = true;
+      return;
+    }
+    loading = true;
     list.replaceChildren(element('p', 'notification-empty', 'Loading election notifications...'));
     try {
       const response = await fetch('/api/notifications', {
@@ -81,6 +99,30 @@
       render(data.notifications);
     } catch (error) {
       list.replaceChildren(element('p', 'notification-error', error.message || 'Could not load election notifications.'));
+    } finally {
+      loading = false;
+      if (loadPending) {
+        loadPending = false;
+        loadNotifications();
+      }
+    }
+  }
+
+  async function markNotificationRead(positionId, button) {
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/notifications/${encodeURIComponent(positionId)}/read`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Could not mark the notification as read.');
+      await loadNotifications();
+    } catch (error) {
+      button.disabled = false;
+      const errorMessage = element('p', 'notification-error', error.message || 'Could not mark the notification as read.');
+      button.after(errorMessage);
     }
   }
 

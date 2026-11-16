@@ -1,7 +1,7 @@
 const { normalizeFullName } = require('./voterRegistrationRules');
 
 function matchesVoterAccount(account, submitted) {
-    return normalizeFullName(account.full_name) === normalizeFullName(submitted.fullName)
+    return typeof submitted.email === 'string'
         && account.email.trim().toLowerCase() === submitted.email.trim().toLowerCase();
 }
 

@@ -29,15 +29,16 @@
               <h2 id="notificationHeading">Election notifications</h2>
               <button class="notification-refresh" type="button" data-notification-refresh>Refresh</button>
             </div>
-            <div data-notification-list role="status" aria-live="polite"></div>
+            <div data-notification-list role="region" aria-label="Election notification list" aria-live="polite"></div>
           </section>
+        </div>
       </div>
       <p class="sub">First choose the position or group, then enter each candidate's information.</p>
 
             <div class="card voter-admin-card">
               <h2>Voter list</h2>
               <p class="sub" id="voterSummary">Loading...</p>
-              <p class="sub">CSV header: <code>reg_number,full_name,contact_email,campus</code></p>
+              <p class="sub">CSV header: <code>reg_number,full_name,contact_email,campus</code>. Every field must be filled on every row; the entire file is rejected if any row is incomplete or invalid.</p>
               <input type="file" id="voterFile" accept=".csv,text/csv">
               <button type="button" id="voterUpload">Upload voter list</button>
               <label for="checkReg">Check a student</label>
@@ -55,7 +56,8 @@
                 <select id="positionCampus">
                   <option value="">All campuses (university-wide)</option>
                 </select>
-                <label class="sub"><input type="checkbox" id="allCampuses"> Create this position separately for every campus</label>
+                <label class="sub"><input type="checkbox" id="allCampuses"> Create a separate position at every campus (overrides the campus selection above)</label>
+                <p class="sub schedule-scope-preview" id="scheduleScopePreview" role="status" aria-live="polite"></p>
         <fieldset class="deadline-picker">
           <legend>Last date and time to add candidates</legend>
           <div class="deadline-picker-fields">
@@ -145,6 +147,7 @@
     const positionList = document.getElementById('positionList');
     const positionCampus = document.getElementById('positionCampus');
     const allCampuses = document.getElementById('allCampuses');
+    const scheduleScopePreview = document.getElementById('scheduleScopePreview');
     const confirmDeadlineButton = document.getElementById('confirmDeadline');
     const continueButton = document.getElementById('continueCandidates');
     const deadlineConfirmed = document.getElementById('deadlineConfirmed');
@@ -160,6 +163,23 @@
     let confirmedDeadline = '';
     let confirmedVotingStart = '';
     let confirmedVotingEnd = '';
+
+    function updateScheduleScopePreview() {
+      const campuses = Array.from(positionCampus.options)
+        .filter(option => option.value)
+        .map(option => option.value);
+      if (allCampuses.checked) {
+        scheduleScopePreview.textContent = campuses.length
+          ? 'This will create ' + campuses.length + ' separate positions: ' + campuses.join(', ') + '.'
+          : 'This will create a separate position at every campus.';
+        scheduleScopePreview.classList.add('schedule-scope-all');
+        return;
+      }
+      const selected = positionCampus.options[positionCampus.selectedIndex];
+      scheduleScopePreview.textContent = 'This will create one position for '
+        + (selected ? selected.textContent.replace(/ campus only$/, '') : 'the selected campus') + '.';
+      scheduleScopePreview.classList.remove('schedule-scope-all');
+    }
 
     async function signOut() {
       try {
@@ -241,6 +261,26 @@
       renderCandidates(knownPositions);
     }
 
+    function showCandidateForm(title, positions) {
+      selectedPosition = title;
+      positionsForCandidate = positions;
+      candidateCampusChoice.replaceChildren();
+      positionsForCandidate.forEach(position => {
+        const option = document.createElement('option');
+        option.value = String(position.id);
+        option.textContent = (position.campus || 'All campuses') + ' — ' + title;
+        candidateCampusChoice.appendChild(option);
+      });
+      candidateCampusChoiceWrap.hidden = positionsForCandidate.length < 2;
+      selectedPositionId = Number(candidateCampusChoice.value);
+      const position = positionsForCandidate.find(item => Number(item.id) === selectedPositionId);
+      document.getElementById('selectedPosition').textContent = title
+        + (position && position.campus ? ' — ' + position.campus : '');
+      positionForm.hidden = true;
+      candidateForm.hidden = false;
+      document.getElementById('candidateName').focus();
+    }
+
     function setDeadlineForPosition() {
       const title = candidatePosition.value.trim().toLowerCase();
       const campus = allCampuses.checked ? null : positionCampus.value;
@@ -290,21 +330,42 @@
     positionCampus.addEventListener('change', () => {
       invalidateDeadlineConfirmation();
       setDeadlineForPosition();
+      updateScheduleScopePreview();
     });
     allCampuses.addEventListener('change', () => {
       positionCampus.disabled = allCampuses.checked;
       invalidateDeadlineConfirmation();
       setDeadlineForPosition();
+      updateScheduleScopePreview();
     });
+    updateScheduleScopePreview();
 
     loadPositions()
       .then(() => {
-        const preselected = new URLSearchParams(location.search).get('position');
+        const params = new URLSearchParams(location.search);
+        const positionId = Number(params.get('positionId'));
+        const preselected = params.get('position');
         if (preselected) {
-          candidatePosition.value = preselected.slice(0, 100);
-          const campus = new URLSearchParams(location.search).get('campus');
+          const campus = params.get('campus');
+          const position = Number.isSafeInteger(positionId) && positionId > 0
+            ? knownPositions.find(item => Number(item.id) === positionId)
+            : knownPositions.find(item => item.title.toLowerCase() === preselected.toLowerCase()
+              && (!campus || item.campus === campus));
+          candidatePosition.value = (position ? position.title : preselected).slice(0, 100);
           if (campus) positionCampus.value = campus;
           setDeadlineForPosition();
+          if (position && position.status === 'setup' && position.canEditCandidates
+            && !position.candidateEntryClosed && position.candidateEntryDeadline
+            && position.votingStartsAt && position.votingEndsAt) {
+            showCandidateForm(position.title, [position]);
+          } else if (position && position.candidateEntryClosed) {
+            formMessage.textContent = position.status === 'closed'
+              ? 'This position is closed and cannot accept candidates.'
+              : position.votingStartReached
+                ? 'Candidate details are locked because voting has reached its scheduled start.'
+                : 'Candidate entry is closed. Reopen it from the position schedule before adding candidates.';
+            formMessage.className = 'msg err';
+          }
         }
       })
       .catch(error => {
@@ -343,33 +404,29 @@
           return;
         }
         if (!response.ok) throw new Error(data.message || 'Could not save candidate-entry deadline.');
-        selectedPosition = data.title;
-        positionsForCandidate = data.positions || [{ id: data.id, campus: positionCampus.value || null }];
+        const scheduledPositions = data.positions || [{ id: data.id, campus: positionCampus.value || null }];
+        const formPositions = scheduledPositions.map(position => ({
+          ...position,
+          title: data.title,
+          canEditCandidates: true,
+          candidateEntryClosed: false
+        }));
         confirmedPosition = positionKey;
         confirmedDeadline = deadline;
         confirmedVotingStart = votingStart;
         confirmedVotingEnd = votingEnd;
-        const scheduledCampuses = new Set(positionsForCandidate.map(position => position.campus || ''));
+        const scheduledCampuses = new Set(formPositions.map(position => position.campus || ''));
         knownPositions = knownPositions.filter(position => position.title.toLowerCase() !== selectedPosition.toLowerCase()
           || !scheduledCampuses.has(position.campus || ''));
-        positionsForCandidate.forEach(position => knownPositions.push({
-          id: position.id,
-          title: data.title,
-          campus: position.campus,
-          candidateEntryDeadline: data.deadline,
-          votingStartsAt: data.votingStartsAt,
-          votingEndsAt: data.votingEndsAt,
-          candidateEntryClosed: false
-        }));
-        candidateCampusChoice.replaceChildren();
-        positionsForCandidate.forEach(position => {
-          const option = document.createElement('option');
-          option.value = String(position.id);
-          option.textContent = (position.campus || 'All campuses') + ' — ' + data.title;
-          candidateCampusChoice.appendChild(option);
+        formPositions.forEach(position => {
+          knownPositions.push({
+            ...position,
+            candidateEntryDeadline: data.deadline,
+            votingStartsAt: data.votingStartsAt,
+            votingEndsAt: data.votingEndsAt
+          });
         });
-        candidateCampusChoiceWrap.hidden = positionsForCandidate.length < 2;
-        selectedPositionId = Number(candidateCampusChoice.value);
+        showCandidateForm(data.title, formPositions);
         continueButton.disabled = false;
         deadlineConfirmed.textContent = 'Candidate deadline: ' + deadlineDate.value + ' at ' + deadlineTime.value
           + '. Voting starts: ' + votingStartDate.value + ' at ' + votingStartTime.value
@@ -395,13 +452,7 @@
         return;
       }
       selectedPosition = candidatePosition.value.trim();
-      selectedPositionId = Number(candidateCampusChoice.value);
-      const chosenPosition = positionsForCandidate.find(position => Number(position.id) === selectedPositionId);
-      document.getElementById('selectedPosition').textContent = selectedPosition
-        + (chosenPosition && chosenPosition.campus ? ' — ' + chosenPosition.campus : '');
-      positionForm.hidden = true;
-      candidateForm.hidden = false;
-      document.getElementById('candidateName').focus();
+      showCandidateForm(selectedPosition, positionsForCandidate);
     });
 
     candidateCampusChoice.addEventListener('change', () => {
@@ -514,7 +565,10 @@
           const r = await fetch(url, Object.assign({ credentials: 'same-origin' }, options));
           const d = await r.json().catch(() => ({}));
           if (r.status === 401) { signOut(); throw new Error('Signed out'); }
-          if (!r.ok) throw new Error(d.message || 'Request failed');
+          if (!r.ok) {
+            const details = Array.isArray(d.invalidLines) && d.invalidLines.length ? ' ' + d.invalidLines.join(' | ') : '';
+            throw new Error((d.message || 'Request failed') + details);
+          }
           return d;
         }
         async function loadSummary() {
@@ -526,10 +580,13 @@
               : 'No voter list yet. Upload it first so candidates and voters can be checked.';
           } catch (e) { $('voterSummary').textContent = e.message; }
         }
-        api('/api/admin/campuses').then(list => list.forEach(c => {
-          const o = document.createElement('option'); o.value = c; o.textContent = c + ' campus only';
-          $('positionCampus').appendChild(o);
-        })).catch(error => {
+        api('/api/admin/campuses').then(list => {
+          list.forEach(c => {
+            const o = document.createElement('option'); o.value = c; o.textContent = c + ' campus only';
+            $('positionCampus').appendChild(o);
+          });
+          updateScheduleScopePreview();
+        }).catch(error => {
           $('candidateOverviewMsg').textContent = 'Could not load campus choices: ' + error.message;
           $('candidateOverviewMsg').className = 'msg err';
         });

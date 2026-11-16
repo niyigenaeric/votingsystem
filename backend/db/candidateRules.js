@@ -6,16 +6,27 @@ function isValidManifesto(manifesto) {
         && manifesto.length <= MAX_MANIFESTO_LENGTH;
 }
 
+function canRescheduleCandidateEntry({ status, votingStartReached }) {
+    return status === 'setup' && !votingStartReached;
+}
+
+function canReschedulePosition({ status, archived, hasVotes }) {
+    return status === 'setup' && !archived && !hasVotes;
+}
+
+function isEligibleForPosition({ eligible, voterCampus, positionCampus }) {
+    return !!eligible && (!positionCampus || positionCampus === voterCampus);
+}
+
 function canVoteForPosition({ eligible, voterCampus, positionCampus, status, hasVoted }) {
-    return !!eligible
-        && (!positionCampus || positionCampus === voterCampus)
+    return isEligibleForPosition({ eligible, voterCampus, positionCampus })
         && status === 'open'
         && !hasVoted;
 }
 
 function getPositionVotingMessage({ eligible, voterCampus, positionCampus, status, hasVoted }) {
     if (!eligible) return 'You are not allowed to vote because your account is not eligible.';
-    if (positionCampus && positionCampus !== voterCampus) {
+    if (!isEligibleForPosition({ eligible, voterCampus, positionCampus })) {
         return 'You are not eligible to vote for this campus position.';
     }
     if (status === 'setup') return 'Voting has not opened for this position yet.';
@@ -27,6 +38,9 @@ function getPositionVotingMessage({ eligible, voterCampus, positionCampus, statu
 module.exports = {
     MAX_MANIFESTO_LENGTH,
     canVoteForPosition,
+    canRescheduleCandidateEntry,
+    canReschedulePosition,
     getPositionVotingMessage,
+    isEligibleForPosition,
     isValidManifesto
 };

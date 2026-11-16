@@ -2,6 +2,10 @@ const REG_RE = /^22[2-5]0[0-9]{5}$/;
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d).{10,72}$/;
 
+function isValidPassword(password) {
+    return typeof password === 'string' && PASSWORD_RE.test(password);
+}
+
 function normalizeFullName(name) {
     return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
@@ -18,11 +22,11 @@ function validateRegistration({ regNumber, fullName, email, password, confirmPas
         return 'Enter your full name as it appears on the official voter list.';
     }
     if (!isValidEmail(email)) return 'Enter a valid email address.';
-    if (!PASSWORD_RE.test(password)) {
+    if (!isValidPassword(password)) {
         return 'Password must be 10 to 72 characters and include a letter and a number.';
     }
     if (password !== confirmPassword) return 'The passwords do not match.';
     return null;
 }
 
-module.exports = { normalizeFullName, validateRegistration };
+module.exports = { isValidEmail, isValidPassword, normalizeFullName, validateRegistration };

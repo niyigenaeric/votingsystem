@@ -4,13 +4,14 @@ const fs = require('fs/promises');
 const path = require('path');
 const multer = require('multer');
 const pool = require('../db/connection');
-const { addAuditLog } = require('../db/audit');
+const { addAuditLog, lockAuditLog, appendAuditLog, releaseAuditLogLock } = require('../db/audit');
 const { getTally } = require('../db/tally');
 const { closeExpiredPositions } = require('../db/election');
 const { stripLocationMetadata } = require('../db/imagePrivacy');
 const { parseKigaliDateTime } = require('../db/schedule');
 const { CAMPUSES, canonical } = require('../db/campuses');
-const { MAX_MANIFESTO_LENGTH, isValidManifesto } = require('../db/candidateRules');
+const { MAX_MANIFESTO_LENGTH, canRescheduleCandidateEntry, canReschedulePosition, isValidManifesto } = require('../db/candidateRules');
+const { hashPublishedResults } = require('../db/resultIntegrity');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -27,7 +28,7 @@ const wrap = fn => (req, res) => fn(req, res).catch(e => {
     console.error(e.code || '', e.sqlMessage || e.message);
     res.status(500).json({ message: 'Server error. Please try again or contact the administrator.' });
 });
-const ENTRY_CLOSED = { message: 'Candidate entry is closed for this position because it was closed by an admin or its deadline passed.' };
+const ENTRY_CLOSED = { message: 'Candidate entry is unavailable. Refresh the position and check its status and schedule.' };
 
 function parseCandidateUpload(req, res, next) {
     candidateUpload(req, res, error => {
@@ -71,9 +72,20 @@ async function candidateEntryState(positionId) {
         [positionId]
     );
     if (!position) return null;
+    const votingStartReached = !!position.voting_start_reached;
+    const entryManuallyClosed = !!position.candidate_entry_closed;
+    const deadlinePassed = !!position.deadline_passed;
     return {
-        closed: position.status === 'closed' || !!position.candidate_entry_closed || !!position.deadline_passed
-            || !!position.voting_start_reached,
+        closed: position.status === 'closed' || entryManuallyClosed || deadlinePassed || votingStartReached,
+        message: position.status === 'closed'
+            ? 'This position is closed and cannot accept candidates.'
+            : votingStartReached
+                ? 'Candidate details are locked because the scheduled voting start has passed.'
+                : entryManuallyClosed
+                    ? 'Candidate entry was closed by an administrator. Set a new deadline before voting begins to reopen it.'
+                    : deadlinePassed
+                        ? 'The candidate-entry deadline passed. Set a new future deadline before voting begins.'
+                        : null,
         deadline: position.candidate_entry_deadline,
         votingStartsAt: position.voting_starts_at
     };
@@ -97,7 +109,12 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
                 CONCAT(DATE_FORMAT(DATE_ADD(candidate_entry_deadline, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS candidate_entry_deadline,
                 (candidate_entry_deadline IS NOT NULL AND candidate_entry_deadline <= UTC_TIMESTAMP()) AS candidate_entry_expired,
                 (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS voting_start_reached,
-                (status = 'setup' AND voting_starts_at > UTC_TIMESTAMP()) AS can_edit_candidates
+                (status = 'setup' AND voting_starts_at > UTC_TIMESTAMP()) AS can_edit_candidates,
+                EXISTS(
+                    SELECT 1 FROM candidates position_candidates
+                    JOIN votes ON votes.candidate_id = position_candidates.id
+                    WHERE position_candidates.position_id = positions.id
+                ) AS has_votes
          FROM positions ORDER BY archived_at IS NOT NULL, id`
     );
     const [c] = await pool.query(
@@ -114,12 +131,129 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
             candidateEntryClosed: p.status === 'closed' || !!p.candidate_entry_closed
                 || !!p.candidate_entry_expired || !!p.voting_start_reached || !!p.archived_at,
             votingStartReached: !!p.voting_start_reached,
-            canEditCandidates: !!p.can_edit_candidates,
+            canEditCandidates: !!p.can_edit_candidates && !p.archived_at,
+            canReschedule: canReschedulePosition({
+                status: p.status,
+                archived: !!p.archived_at,
+                hasVotes: !!p.has_votes
+            }),
             candidates: c.filter(x => x.position_id === p.id).map(x => ({
                 id: x.id, name: x.full_name, regNumber: x.reg_number, imageUrl: x.image_path, manifesto: x.manifesto
             }))
         }))
     });
+}));
+
+router.put('/positions/:id', verifyToken, requireRole('admin'), wrap(async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid' });
+    const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+    const campus = typeof req.body.campus === 'string' && req.body.campus.trim()
+        ? canonical(req.body.campus)
+        : '';
+    const deadline = parseKigaliDateTime(req.body.deadline);
+    const votingStart = parseKigaliDateTime(req.body.votingStart);
+    const votingEnd = parseKigaliDateTime(req.body.votingEnd);
+    if (!title || title.length > 100) {
+        return res.status(400).json({ message: 'Position name is required (100 characters maximum)' });
+    }
+    if (req.body.campus && !campus) return res.status(400).json({ message: 'Choose a valid campus' });
+    if (typeof req.body.campus !== 'string') return res.status(400).json({ message: 'Choose a valid campus' });
+    if (!deadline || !votingStart || !votingEnd) {
+        return res.status(400).json({ message: 'Enter valid candidate-entry, voting start, and voting end dates' });
+    }
+
+    const connection = await pool.getConnection();
+    let auditLockAcquired = false;
+    try {
+        await connection.beginTransaction();
+        const [[position]] = await connection.query(
+            `SELECT id, title, campus, status, candidate_entry_deadline, voting_starts_at, voting_ends_at,
+                    archived_at, (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS start_reached,
+                    EXISTS(
+                        SELECT 1 FROM candidates position_candidates
+                        JOIN votes ON votes.candidate_id = position_candidates.id
+                        WHERE position_candidates.position_id = positions.id
+                    ) AS has_votes
+             FROM positions WHERE id = ? FOR UPDATE`,
+            [id]
+        );
+        if (!position) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Position not found' });
+        }
+        if (!canReschedulePosition({
+            status: position.status,
+            archived: !!position.archived_at,
+            hasVotes: !!position.has_votes
+        })) {
+            await connection.rollback();
+            return res.status(409).json({
+                message: 'The schedule can only be changed before voting is opened and before any votes are recorded.'
+            });
+        }
+        if (position.start_reached
+            && (title !== position.title || campus !== (position.campus || ''))) {
+            await connection.rollback();
+            return res.status(409).json({
+                message: 'The scheduled start has passed. You may change the dates, but position name and campus are locked.'
+            });
+        }
+
+        const [[scheduleCheck]] = await connection.query(
+            `SELECT ? > UTC_TIMESTAMP() AS deadline_future, ? > UTC_TIMESTAMP() AS voting_future,
+                    ? <= ? AS deadline_before_vote, ? < ? AS start_before_end`,
+            [deadline, votingStart, deadline, votingStart, votingStart, votingEnd]
+        );
+        if (!scheduleCheck.deadline_future) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'The candidate-entry deadline must be in the future' });
+        }
+        if (!scheduleCheck.voting_future) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'The voting start date must be in the future' });
+        }
+        if (!scheduleCheck.deadline_before_vote) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Candidate entry must end before or at the voting start time' });
+        }
+        if (!scheduleCheck.start_before_end) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'The voting end date must be after the scheduled start time' });
+        }
+
+        const [[duplicate]] = await connection.query(
+            'SELECT id FROM positions WHERE title = ? AND campus = ? AND id <> ? FOR UPDATE',
+            [title, campus, id]
+        );
+        if (duplicate) {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Another position already uses this name and campus' });
+        }
+
+        await connection.query(
+            `UPDATE positions
+             SET title = ?, campus = ?, candidate_entry_deadline = ?, voting_starts_at = ?, voting_ends_at = ?
+             WHERE id = ? AND status = 'setup' AND archived_at IS NULL`,
+            [title, campus, deadline, votingStart, votingEnd, id]
+        );
+        await lockAuditLog(connection);
+        auditLockAcquired = true;
+        await appendAuditLog(connection, 'POSITION_UPDATED', req.user.regNumber,
+            `position=${id}, fromTitle=${position.title}, fromCampus=${position.campus || 'university-wide'}, title=${title}, campus=${campus || 'university-wide'}, candidateDeadline=${deadline}, votingStart=${votingStart}, votingEnd=${votingEnd}`);
+        await connection.commit();
+        res.json({ id, title, campus: campus || null });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Another position already uses this name and campus' });
+        }
+        await connection.rollback();
+        throw error;
+    } finally {
+        if (auditLockAcquired) await releaseAuditLogLock(connection);
+        connection.release();
+    }
 }));
 
 router.post('/positions/candidate-entry', verifyToken, requireRole('admin'), wrap(async (req, res) => {
@@ -146,6 +280,7 @@ router.post('/positions/candidate-entry', verifyToken, requireRole('admin'), wra
 
     const campuses = allCampuses ? CAMPUSES : [campus];
     const connection = await pool.getConnection();
+    let auditLockAcquired = false;
     const scheduled = [];
     try {
         await connection.beginTransaction();
@@ -161,48 +296,90 @@ router.post('/positions/candidate-entry', verifyToken, requireRole('admin'), wra
                 });
             }
             await connection.query(
-                'INSERT IGNORE INTO positions (title, campus) VALUES (?, ?)',
+                `INSERT INTO positions (title, campus) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
                 [title, campusName]
             );
             const [[position]] = await connection.query(
-                'SELECT id, status, candidate_entry_closed FROM positions WHERE title = ? AND campus = ? AND archived_at IS NULL FOR UPDATE',
+                `SELECT id, status, candidate_entry_closed,
+                        (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS voting_start_reached
+                 FROM positions WHERE title = ? AND campus = ? AND archived_at IS NULL FOR UPDATE`,
                 [title, campusName]
             );
-            if (!position || position.status === 'closed' || position.candidate_entry_closed) {
+            if (!position) {
+                const [[matchingPosition]] = await connection.query(
+                    'SELECT archived_at FROM positions WHERE title = ? AND campus = ? FOR UPDATE',
+                    [title, campusName]
+                );
                 await connection.rollback();
-                return res.status(409).json(ENTRY_CLOSED);
+                if (matchingPosition && matchingPosition.archived_at) {
+                    return res.status(409).json({
+                        message: 'This position is archived. Restore it from Archived elections before adding candidates.'
+                    });
+                }
+                console.error('Candidate schedule could not find active position after insert', {
+                    title,
+                    campus: campusName || 'university-wide'
+                });
+                return res.status(409).json({
+                    message: `Could not find or create an active position for "${title}" at ${campusName || 'all campuses'}. Check that the position name and campus are correct. If this keeps happening, ask an administrator to check the database.`
+                });
+            }
+            if (!canRescheduleCandidateEntry({
+                status: position.status,
+                votingStartReached: !!position.voting_start_reached
+            })) {
+                await connection.rollback();
+                const message = position.status === 'closed'
+                    ? 'This position is closed and cannot accept candidates.'
+                    : position.status === 'open'
+                        ? 'Voting is open; candidate details can no longer be changed.'
+                        : 'Candidate details are locked because the scheduled voting start has passed.';
+                return res.status(409).json({ message });
             }
             const [updated] = await connection.query(
                 `UPDATE positions
-                 SET candidate_entry_deadline = ?, voting_starts_at = ?, voting_ends_at = ?
-                 WHERE id = ? AND status = 'setup' AND archived_at IS NULL AND candidate_entry_closed = 0
-                   AND (candidate_entry_deadline IS NULL OR candidate_entry_deadline > UTC_TIMESTAMP())
+                 SET candidate_entry_deadline = ?, voting_starts_at = ?, voting_ends_at = ?,
+                     candidate_entry_closed = 0
+                 WHERE id = ? AND status = 'setup' AND archived_at IS NULL
                    AND (voting_starts_at IS NULL OR voting_starts_at > UTC_TIMESTAMP())
                    AND ? > UTC_TIMESTAMP() AND ? > UTC_TIMESTAMP()`,
                 [deadline, votingStart, votingEnd, position.id, deadline, votingStart]
             );
             if (!updated.affectedRows) {
                 const [[current]] = await connection.query(
-                    `SELECT candidate_entry_deadline, voting_starts_at FROM positions WHERE id = ?`,
-                    [position.id]
+                    `SELECT status, candidate_entry_closed,
+                            (voting_starts_at > UTC_TIMESTAMP()) AS voting_start_future,
+                            (candidate_entry_deadline = ?) AS deadline_matches,
+                            (voting_starts_at = ?) AS voting_start_matches,
+                            (voting_ends_at = ?) AS voting_end_matches
+                     FROM positions WHERE id = ?`,
+                    [deadline, votingStart, votingEnd, position.id]
                 );
-                if (!current || !current.candidate_entry_deadline || !current.voting_starts_at) {
+                if (!current || current.status !== 'setup' || current.candidate_entry_closed
+                    || !current.voting_start_future || !current.deadline_matches
+                    || !current.voting_start_matches || !current.voting_end_matches) {
                     await connection.rollback();
-                    return res.status(409).json(ENTRY_CLOSED);
+                    return res.status(409).json({
+                        message: 'The candidate schedule could not be updated. Refresh the page and check that voting has not started.'
+                    });
                 }
             }
             scheduled.push({ id: Number(position.id), campus: campusName || null });
+        }
+        await lockAuditLog(connection);
+        auditLockAcquired = true;
+        for (const position of scheduled) {
+            await appendAuditLog(connection, 'POSITION_SCHEDULE_SET', req.user.regNumber,
+                `position=${position.id}, title=${title}, campus=${position.campus || 'university-wide'}, candidateDeadline=${deadline}, votingStart=${votingStart}, votingEnd=${votingEnd}`);
         }
         await connection.commit();
     } catch (error) {
         await connection.rollback();
         throw error;
     } finally {
+        if (auditLockAcquired) await releaseAuditLogLock(connection);
         connection.release();
-    }
-    for (const position of scheduled) {
-        await addAuditLog('POSITION_SCHEDULE_SET', req.user.regNumber,
-            `position=${position.id}, title=${title}, campus=${position.campus || 'university-wide'}, candidateDeadline=${deadline}, votingStart=${votingStart}, votingEnd=${votingEnd}`);
     }
     res.status(200).json({ id: scheduled[0].id, positions: scheduled, title, deadline: req.body.deadline, votingStartsAt: req.body.votingStart, votingEndsAt: req.body.votingEnd });
 }));
@@ -233,14 +410,13 @@ router.post('/candidates', verifyToken, requireRole('admin'),
         if (!p) return res.status(404).json({ message: 'Choose the position and set its candidate-entry deadline first' });
         if (p.archived_at) return res.status(409).json({ message: 'This position is archived' });
 
-        if (p.campus && !reg) return res.status(400).json({ message: 'A registration number is required for a campus position' });
-        if (p.campus) {
+        if (p.campus && reg) {
             const [[st]] = await pool.query(`SELECT campus FROM students WHERE reg_number = ? AND role = 'voter'`, [reg]);
             if (!st || st.campus !== p.campus) return res.status(400).json({ message: 'This student is not registered on the ' + p.campus + ' campus' });
         }
         const entryState = await candidateEntryState(p.id);
         if (!entryState) return res.status(404).json({ message: 'Position not found' });
-        if (entryState.closed) return res.status(409).json(ENTRY_CLOSED);
+        if (entryState.closed) return res.status(409).json({ message: entryState.message || ENTRY_CLOSED.message });
         if (!entryState.deadline) return res.status(409).json({ message: 'Set a candidate-entry deadline before adding candidates' });
         const [duplicates] = await pool.query(
             'SELECT id FROM candidates WHERE position_id = ? AND full_name = ?',
@@ -259,57 +435,77 @@ router.post('/candidates', verifyToken, requireRole('admin'),
         }
         const file = crypto.randomUUID() + '.' + ext(req.file.buffer);
         await fs.mkdir(DIR, { recursive: true });
-        await fs.writeFile(path.join(DIR, file), cleanImage, { flag: 'wx' });
-        let id;
+        const newImagePath = '/uploads/candidates/' + file;
+        const connection = await pool.getConnection();
+        let auditLockAcquired = false;
+        let newImageWritten = false;
+        let candidateId = null;
         try {
-            const [r] = await pool.query(
+            await connection.beginTransaction();
+            await fs.writeFile(path.join(DIR, file), cleanImage, { flag: 'wx' });
+            newImageWritten = true;
+            const [inserted] = await connection.query(
                 `INSERT INTO candidates (full_name, reg_number, position_id, image_path, manifesto)
-                 SELECT ?, ?, id, ?, ? FROM positions
-                 WHERE id = ? AND status = 'setup' AND archived_at IS NULL AND candidate_entry_closed = 0
-                   AND candidate_entry_deadline > UTC_TIMESTAMP() AND voting_starts_at > UTC_TIMESTAMP()`,
-                [name, reg || null, '/uploads/candidates/' + file, manifesto, p.id]
+                 VALUES (?, ?, ?, ?, ?)` ,
+                [name, reg || null, p.id, newImagePath, manifesto]
             );
-            if (!r.affectedRows) {
-                await removeImage(file);
-                return res.status(409).json(ENTRY_CLOSED);
+            candidateId = inserted.insertId;
+            await lockAuditLog(connection);
+            auditLockAcquired = true;
+            await appendAuditLog(connection, 'CANDIDATE_ADDED', req.user.regNumber,
+                'candidate=' + candidateId + ', position=' + p.id + ', reg=' + (reg || 'none'));
+            await connection.commit();
+        } catch (error) {
+            await connection.rollback();
+            if (newImageWritten) await removeImage(file);
+            if (error.code === 'ER_DUP_ENTRY') {
+                return res.status(409).json({ message: 'A candidate with this registration number already exists in this position.' });
             }
-            id = r.insertId;
-        } catch (e) {
-            await removeImage(file);
-            if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'This student is already a candidate' });
-            throw e;
+            throw error;
+        } finally {
+            if (auditLockAcquired) await releaseAuditLogLock(connection);
+            connection.release();
         }
-        await addAuditLog('CANDIDATE_ADDED', req.user.regNumber,
-            'candidate=' + id + ', reg=' + (reg || 'none') + ', position=' + p.id + ', title=' + p.title);
-        res.status(201).json({ id });
+        res.status(201).json({ id: candidateId });
     }));
 
 router.delete('/candidates/:id', verifyToken, requireRole('admin'), wrap(async (req, res) => {
     const id = Number.parseInt(req.params.id, 10);
-    const [rows] = await pool.query(
-        `SELECT c.reg_number, c.image_path, p.id AS position_id
-         FROM candidates c JOIN positions p ON p.id = c.position_id WHERE c.id = ?`,
-        [id]
-    );
-    if (!rows.length) return res.status(404).json({ message: 'Candidate not found' });
-    const [deleted] = await pool.query(
-        `DELETE c FROM candidates c JOIN positions p ON p.id = c.position_id
-         WHERE c.id = ? AND p.status = 'setup' AND p.voting_starts_at > UTC_TIMESTAMP()`,
-        [id]
-    );
-    if (!deleted.affectedRows) {
-        const [[position]] = await pool.query(
-            `SELECT status, (voting_starts_at IS NULL OR voting_starts_at <= UTC_TIMESTAMP()) AS edit_window_closed
-             FROM positions WHERE id = ?`,
-            [rows[0].position_id]
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Candidate ID is invalid' });
+    const connection = await pool.getConnection();
+    let auditLockAcquired = false;
+    let candidate;
+    try {
+        await connection.beginTransaction();
+        const [[row]] = await connection.query(
+            `SELECT c.reg_number, c.image_path, p.id AS position_id, p.status,
+                    (p.voting_starts_at IS NULL OR p.voting_starts_at <= UTC_TIMESTAMP()) AS edit_window_closed
+             FROM candidates c JOIN positions p ON p.id = c.position_id
+             WHERE c.id = ? FOR UPDATE`,
+            [id]
         );
-        if (position && (position.status !== 'setup' || position.edit_window_closed)) {
+        if (!row) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Candidate not found' });
+        }
+        if (row.status !== 'setup' || row.edit_window_closed) {
+            await connection.rollback();
             return res.status(409).json({ message: 'Candidates can only be changed before the scheduled voting start time' });
         }
-        return res.status(404).json({ message: 'Candidate not found' });
+        candidate = row;
+        await connection.query('DELETE FROM candidates WHERE id = ?', [id]);
+        await lockAuditLog(connection);
+        auditLockAcquired = true;
+        await appendAuditLog(connection, 'CANDIDATE_REMOVED', req.user.regNumber, 'candidate=' + id + ', reg=' + row.reg_number);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        if (auditLockAcquired) await releaseAuditLogLock(connection);
+        connection.release();
     }
-    await removeImage(path.basename(rows[0].image_path));
-    await addAuditLog('CANDIDATE_REMOVED', req.user.regNumber, 'candidate=' + id + ', reg=' + rows[0].reg_number);
+    await removeImage(path.basename(candidate.image_path));
     res.json({ message: 'Candidate removed' });
 }));
 
@@ -397,6 +593,76 @@ router.post('/positions/:id/archive', verifyToken, requireRole('admin'), wrap(as
     res.json({ id, archived: true });
 }));
 
+router.delete('/positions/:id', verifyToken, requireRole('admin'), wrap(async (req, res) => {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid' });
+
+    const connection = await pool.getConnection();
+    let auditLockAcquired = false;
+    let position;
+    let imagePaths;
+    try {
+        await connection.beginTransaction();
+        const [[lockedPosition]] = await connection.query(
+            'SELECT id, title, campus, status FROM positions WHERE id = ? FOR UPDATE',
+            [id]
+        );
+        if (!lockedPosition) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Position not found' });
+        }
+        position = lockedPosition;
+        if (position.status === 'open') {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Close voting before deleting this position. Positions with ballots should be archived instead.' });
+        }
+
+        const [[ballots]] = await connection.query(
+            `SELECT
+                (SELECT COUNT(*) FROM votes WHERE position_id = ?) AS votes,
+                (SELECT COUNT(*) FROM voter_receipts WHERE position_id = ?) AS receipts`,
+            [id, id]
+        );
+        if (Number(ballots.votes) || Number(ballots.receipts)) {
+            await connection.rollback();
+            return res.status(409).json({
+                message: 'This position has recorded ballots or voter receipts and cannot be deleted. Archive it to preserve the election record.'
+            });
+        }
+
+        const [candidates] = await connection.query(
+            'SELECT image_path FROM candidates WHERE position_id = ? FOR UPDATE',
+            [id]
+        );
+        imagePaths = candidates.map(candidate => candidate.image_path);
+        await connection.query('DELETE FROM candidates WHERE position_id = ?', [id]);
+        const [deleted] = await connection.query('DELETE FROM positions WHERE id = ?', [id]);
+        if (!deleted.affectedRows) {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Position changed while deleting. Refresh and try again.' });
+        }
+        await lockAuditLog(connection);
+        auditLockAcquired = true;
+        await appendAuditLog(connection, 'POSITION_DELETED', req.user.regNumber,
+            `position=${id}, title=${position.title}, campus=${position.campus || 'university-wide'}`);
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+            return res.status(409).json({
+                message: 'This position has election records and cannot be deleted. Archive it to preserve its history.'
+            });
+        }
+        throw error;
+    } finally {
+        if (auditLockAcquired) await releaseAuditLogLock(connection);
+        connection.release();
+    }
+
+    for (const imagePath of imagePaths) await removeImage(path.basename(imagePath));
+    res.json({ id, deleted: true });
+}));
+
 router.post('/positions/:id/restore', verifyToken, requireRole('admin'), wrap(async (req, res) => {
     const id = Number.parseInt(req.params.id, 10);
     if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid' });
@@ -476,27 +742,59 @@ router.post('/positions/:id/results/publish', verifyToken, requireRole('admin'),
     await closeExpiredPositions();
     const id = Number.parseInt(req.params.id, 10);
     if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid' });
-    const [tally] = await pool.query(
-        `SELECT c.id, COUNT(v.id) AS votes
-         FROM candidates c LEFT JOIN votes v ON v.candidate_id = c.id AND v.position_id = ?
-         WHERE c.position_id = ?
-         GROUP BY c.id ORDER BY c.id`,
-        [id, id]
-    );
-    const [[position]] = await pool.query('SELECT title, status, results_published FROM positions WHERE id = ?', [id]);
-    if (!position) return res.status(404).json({ message: 'Position not found' });
-    if (position.status !== 'closed') return res.status(409).json({ message: 'Close this position before publishing its results' });
-    if (position.results_published) return res.status(409).json({ message: 'Results for this position are already published' });
-    const hash = crypto.createHash('sha256')
-        .update(JSON.stringify([id, position.title, tally.map(row => [row.id, Number(row.votes)])]))
-        .digest('hex');
-    const [r] = await pool.query(
-        'UPDATE positions SET results_published = 1, published_at = UTC_TIMESTAMP(), results_hash = ? WHERE id = ? AND status = ? AND results_published = 0',
-        [hash, id, 'closed']
-    );
-    if (!r.affectedRows) return res.status(409).json({ message: 'Results are already published' });
-    await addAuditLog('POSITION_RESULTS_PUBLISHED', req.user.regNumber, `position=${id}, title=${position.title}, sha256=${hash}`);
-    res.json({ id, published: true, hash });
+    const connection = await pool.getConnection();
+    let auditLockAcquired = false;
+    try {
+        await connection.beginTransaction();
+        const [[position]] = await connection.query(
+            'SELECT title, status, results_published FROM positions WHERE id = ? FOR UPDATE',
+            [id]
+        );
+        if (!position) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Position not found' });
+        }
+        if (position.status !== 'closed') {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Close this position before publishing its results' });
+        }
+        if (position.results_published) {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Results for this position are already published' });
+        }
+        const [tally] = await connection.query(
+            `SELECT c.id, COUNT(v.id) AS votes
+             FROM candidates c LEFT JOIN votes v ON v.candidate_id = c.id AND v.position_id = ?
+             WHERE c.position_id = ?
+             GROUP BY c.id ORDER BY c.id`,
+            [id, id]
+        );
+        const hash = hashPublishedResults(id, position.title, tally.map(row => ({ id: row.id, votes: row.votes })));
+        const [updated] = await connection.query(
+            'UPDATE positions SET results_published = 1, published_at = UTC_TIMESTAMP(), results_hash = ? WHERE id = ? AND status = ? AND results_published = 0',
+            [hash, id, 'closed']
+        );
+        if (!updated.affectedRows) {
+            await connection.rollback();
+            return res.status(409).json({ message: 'Results are already published' });
+        }
+        await lockAuditLog(connection);
+        auditLockAcquired = true;
+        await appendAuditLog(
+            connection,
+            'POSITION_RESULTS_PUBLISHED',
+            req.user.regNumber,
+            `position=${id}, title=${position.title}, sha256=${hash}`
+        );
+        await connection.commit();
+        res.json({ id, published: true, hash });
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        if (auditLockAcquired) await releaseAuditLogLock(connection);
+        connection.release();
+    }
 }));
 
 router.use((err, req, res, next) => {

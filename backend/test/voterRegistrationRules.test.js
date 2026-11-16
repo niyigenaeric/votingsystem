@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeFullName, validateRegistration } = require('../db/voterRegistrationRules');
+const { isValidPassword, normalizeFullName, validateRegistration } = require('../db/voterRegistrationRules');
 
 const validRegistration = {
     regNumber: '223007576',
@@ -27,4 +27,11 @@ test('normalizes names for comparison with the official voter list', () => {
 test('requires a strong password and matching confirmation', () => {
     assert.match(validateRegistration({ ...validRegistration, password: 'short' }), /10 to 72 characters/);
     assert.match(validateRegistration({ ...validRegistration, confirmPassword: 'differentpassword1' }), /do not match/);
+});
+
+test('applies the same password rules to password resets', () => {
+    assert.equal(isValidPassword('securepassword123'), true);
+    assert.equal(isValidPassword('short1'), false);
+    assert.equal(isValidPassword('lettersOnlyPassword'), false);
+    assert.equal(isValidPassword('1'.repeat(73) + 'a'), false);
 });
