@@ -25,6 +25,25 @@ CREATE TABLE IF NOT EXISTS students (
   KEY idx_students_campus_role (campus, role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS staff_accounts (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  reg_number VARCHAR(20) NOT NULL,
+  username VARCHAR(50) NOT NULL,
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL,
+  university_position VARCHAR(100) NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('admin', 'auditor') NOT NULL DEFAULT 'admin',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  failed_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  locked_until DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_staff_accounts_reg_number (reg_number),
+  UNIQUE KEY uq_staff_accounts_username (username),
+  UNIQUE KEY uq_staff_accounts_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS voter_accounts (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   reg_number VARCHAR(20) NOT NULL,
@@ -117,6 +136,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   reg_number VARCHAR(20) NULL,
   position_id INT NOT NULL,
   image_path VARCHAR(255) NOT NULL,
+  image_public_id VARCHAR(255) NULL,
   manifesto TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -156,7 +176,8 @@ CREATE TABLE IF NOT EXISTS voter_receipts (
 
 CREATE TABLE IF NOT EXISTS otp_codes (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  student_id INT UNSIGNED NOT NULL,
+  student_id INT UNSIGNED NULL,
+  staff_id INT UNSIGNED NULL,
   purpose ENUM('activation', 'admin_login') NOT NULL DEFAULT 'activation',
   code_hash VARCHAR(255) NOT NULL,
   attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -165,7 +186,10 @@ CREATE TABLE IF NOT EXISTS otp_codes (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_otp_student_purpose_expiry (student_id, purpose, expires_at, used),
+  KEY idx_otp_staff_purpose_expiry (staff_id, purpose, expires_at, used),
   CONSTRAINT fk_otp_codes_student FOREIGN KEY (student_id) REFERENCES students(id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_otp_codes_staff FOREIGN KEY (staff_id) REFERENCES staff_accounts(id)
     ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

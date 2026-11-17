@@ -11,14 +11,22 @@ async function main() {
   }
   const hash = await bcrypt.hash(password, 12);
   const [result] = await pool.query(
-    `UPDATE students
+    `UPDATE staff_accounts
      SET password_hash = ?, failed_attempts = 0, locked_until = NULL
      WHERE username = ? AND role = 'admin'`,
     [hash, username]
   );
   if (result.affectedRows === 0) {
-    console.log('No admin found with that username.');
-    process.exit(1);
+    const [legacyResult] = await pool.query(
+      `UPDATE students
+       SET password_hash = ?, failed_attempts = 0, locked_until = NULL
+       WHERE username = ? AND role = 'admin'`,
+      [hash, username]
+    );
+    if (legacyResult.affectedRows === 0) {
+      console.log('No admin found with that username.');
+      process.exit(1);
+    }
   }
   await addAuditLog('ADMIN_PASSWORD_RESET', 'system', `Password reset for ${username}`);
   console.log('Password reset. You can sign in now.');

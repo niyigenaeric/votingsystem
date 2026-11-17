@@ -13,15 +13,20 @@ const app = express();
 const frontendDir = path.join(__dirname, '..', 'frontend');
 const uploadsDir = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, 'uploads', 'candidates'));
 const jwtSecret = process.env.JWT_SECRET;
+const hasSmtpConfig = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const hasBrevoConfig = Boolean(process.env.BREVO_API_KEY && (process.env.BREVO_SENDER_EMAIL || process.env.MAIL_FROM));
+const hasCloudinaryConfig = Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET
+);
 if (!jwtSecret || jwtSecret === 'change_this_to_a_long_random_text' || jwtSecret.length < 32
     || /^(replace|change|your|example|placeholder)/i.test(jwtSecret)) {
     throw new Error('JWT_SECRET must be a unique secret of at least 32 characters.');
 }
-if (process.env.NODE_ENV === 'production' && !process.env.UPLOAD_DIR) {
-    throw new Error('Set UPLOAD_DIR to a persistent disk path in production.');
+if (process.env.NODE_ENV === 'production' && !process.env.UPLOAD_DIR && !hasCloudinaryConfig) {
+    throw new Error('Set UPLOAD_DIR or configure Cloudinary in production.');
 }
-if (process.env.NODE_ENV === 'production' && !process.env.SMTP_HOST) {
-    throw new Error('Configure SMTP_HOST before running in production.');
+if (process.env.NODE_ENV === 'production' && !hasSmtpConfig && !hasBrevoConfig) {
+    throw new Error('Configure SMTP or Brevo before running in production.');
 }
 if (process.env.NODE_ENV === 'production') {
     let appBaseUrl;

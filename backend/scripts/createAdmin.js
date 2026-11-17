@@ -22,13 +22,16 @@ async function main() {
         console.log('Password must be at least 10 characters.');
         process.exit(1);
     }
-    const hash = await bcrypt.hash(password, 12);
     const normalizedUsername = username.trim();
+    const normalizedName = name.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPosition = universityPosition.trim();
+    const hash = await bcrypt.hash(password, 12);
     await pool.query(
-        `INSERT INTO students
-         (reg_number, username, full_name, contact_email, university_position, password_hash, role, is_activated)
+        `INSERT INTO staff_accounts
+         (reg_number, username, full_name, email, university_position, password_hash, role, is_active)
          VALUES (?, ?, ?, ?, ?, ?, 'admin', TRUE)`,
-        [normalizedUsername, normalizedUsername, name.trim(), email.trim().toLowerCase(), universityPosition.trim(), hash]
+        [normalizedUsername, normalizedUsername, normalizedName, normalizedEmail, normalizedPosition, hash]
     );
     await addAuditLog('ADMIN_CREATED', 'system', `Admin ${normalizedUsername} created`);
     console.log('Admin created successfully.');

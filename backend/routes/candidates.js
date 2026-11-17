@@ -3,6 +3,7 @@ const express = require('express');
 const fs = require('fs/promises');
 const path = require('path');
 const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 const pool = require('../db/connection');
 const { addAuditLog, lockAuditLog, appendAuditLog, releaseAuditLogLock } = require('../db/audit');
 const { getTally } = require('../db/tally');
@@ -15,6 +16,14 @@ const { hashPublishedResults } = require('../db/resultIntegrity');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+const cloudinaryConfigured = Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+if (cloudinaryConfigured) {
+    cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+}
 const DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads', 'candidates'));
 const REG_RE = /^22[2-5]0[0-9]{5}$/;
 const candidateUpload = multer({
@@ -55,9 +64,46 @@ async function sanitizeImage(buffer) {
     return clean;
 }
 
-async function removeImage(file) {
+function resolveCandidateImageUrl(imagePath) {
+    if (!imagePath) return imagePath || null;
+    if (/^https?:\/\//i.test(imagePath)) return imagePath;
+    return `${process.env.APP_BASE_URL || 'http://localhost:5000'}${imagePath}`;
+}
+
+async function uploadCandidateImage(buffer) {
+    if (cloudinaryConfigured) {
+        const result = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream({
+                folder: 'voting-system/candidates',
+                resource_type: 'image',
+                transformation: [{ quality: 'auto', fetch_format: 'auto' }]
+            }, (error, response) => {
+                if (error) return reject(error);
+                resolve(response);
+            });
+            stream.end(buffer);
+        });
+        return { imageUrl: result.secure_url, publicId: result.public_id };
+    }
+    const file = `${crypto.randomUUID()}.${ext(buffer)}`;
+    await fs.mkdir(DIR, { recursive: true });
+    const imagePath = '/uploads/candidates/' + file;
+    await fs.writeFile(path.join(DIR, file), buffer, { flag: 'wx' });
+    return { imageUrl: imagePath, publicId: null };
+}
+
+async function removeImage(imagePath, publicId) {
+    if (cloudinaryConfigured && publicId) {
+        try {
+            await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+        } catch (error) {
+            console.error('Candidate Cloudinary cleanup failed:', error.message);
+        }
+        return;
+    }
+    if (!imagePath) return;
     try {
-        await fs.unlink(path.join(DIR, path.basename(file)));
+        await fs.unlink(path.join(DIR, path.basename(imagePath)));
     } catch (error) {
         if (error.code !== 'ENOENT') console.error('Candidate image cleanup failed:', error.message);
     }
@@ -118,7 +164,7 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
          FROM positions ORDER BY archived_at IS NOT NULL, id`
     );
     const [c] = await pool.query(
-        'SELECT id, position_id, full_name, reg_number, image_path, manifesto FROM candidates ORDER BY full_name'
+        'SELECT id, position_id, full_name, reg_number, image_path, image_public_id, manifesto FROM candidates ORDER BY full_name'
     );
     res.json({
         status: await getElectionStatus(),
@@ -138,7 +184,7 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
                 hasVotes: !!p.has_votes
             }),
             candidates: c.filter(x => x.position_id === p.id).map(x => ({
-                id: x.id, name: x.full_name, regNumber: x.reg_number, imageUrl: x.image_path, manifesto: x.manifesto
+                id: x.id, name: x.full_name, regNumber: x.reg_number, imageUrl: resolveCandidateImageUrl(x.image_path), manifesto: x.manifesto
             }))
         }))
     });
@@ -433,21 +479,22 @@ router.post('/candidates', verifyToken, requireRole('admin'),
             if (error.code === 'IMAGE_TOO_LARGE') return res.status(400).json({ message: error.message });
             return res.status(400).json({ message: 'The image could not be decoded. Choose a valid JPEG, PNG or WebP image.' });
         }
-        const file = crypto.randomUUID() + '.' + ext(req.file.buffer);
-        await fs.mkdir(DIR, { recursive: true });
-        const newImagePath = '/uploads/candidates/' + file;
+        let uploadedImage = null;
+        try {
+            uploadedImage = await uploadCandidateImage(cleanImage);
+        } catch (error) {
+            console.error('Candidate upload failed:', error.message);
+            return res.status(500).json({ message: 'The image could not be uploaded. Please try again.' });
+        }
         const connection = await pool.getConnection();
         let auditLockAcquired = false;
-        let newImageWritten = false;
         let candidateId = null;
         try {
             await connection.beginTransaction();
-            await fs.writeFile(path.join(DIR, file), cleanImage, { flag: 'wx' });
-            newImageWritten = true;
             const [inserted] = await connection.query(
-                `INSERT INTO candidates (full_name, reg_number, position_id, image_path, manifesto)
-                 VALUES (?, ?, ?, ?, ?)` ,
-                [name, reg || null, p.id, newImagePath, manifesto]
+                `INSERT INTO candidates (full_name, reg_number, position_id, image_path, image_public_id, manifesto)
+                 VALUES (?, ?, ?, ?, ?, ?)` ,
+                [name, reg || null, p.id, uploadedImage.imageUrl, uploadedImage.publicId, manifesto]
             );
             candidateId = inserted.insertId;
             await lockAuditLog(connection);
@@ -457,7 +504,7 @@ router.post('/candidates', verifyToken, requireRole('admin'),
             await connection.commit();
         } catch (error) {
             await connection.rollback();
-            if (newImageWritten) await removeImage(file);
+            if (uploadedImage) await removeImage(uploadedImage.imageUrl, uploadedImage.publicId);
             if (error.code === 'ER_DUP_ENTRY') {
                 return res.status(409).json({ message: 'A candidate with this registration number already exists in this position.' });
             }
@@ -478,7 +525,7 @@ router.delete('/candidates/:id', verifyToken, requireRole('admin'), wrap(async (
     try {
         await connection.beginTransaction();
         const [[row]] = await connection.query(
-            `SELECT c.reg_number, c.image_path, p.id AS position_id, p.status,
+            `SELECT c.reg_number, c.image_path, c.image_public_id, p.id AS position_id, p.status,
                     (p.voting_starts_at IS NULL OR p.voting_starts_at <= UTC_TIMESTAMP()) AS edit_window_closed
              FROM candidates c JOIN positions p ON p.id = c.position_id
              WHERE c.id = ? FOR UPDATE`,
@@ -505,7 +552,7 @@ router.delete('/candidates/:id', verifyToken, requireRole('admin'), wrap(async (
         if (auditLockAcquired) await releaseAuditLogLock(connection);
         connection.release();
     }
-    await removeImage(path.basename(candidate.image_path));
+    await removeImage(candidate.image_path, candidate.image_public_id);
     res.json({ message: 'Candidate removed' });
 }));
 
@@ -521,7 +568,7 @@ router.put('/candidates/:id', verifyToken, requireRole('admin'),
             return res.status(400).json({ message: 'A candidate manifesto is required (10,000 characters maximum).' });
         }
         const [rows] = await pool.query(
-            `SELECT c.image_path, p.id AS position_id, p.status, p.voting_starts_at,
+            `SELECT c.image_path, c.image_public_id, p.id AS position_id, p.status, p.voting_starts_at,
                     (p.voting_starts_at IS NOT NULL AND p.voting_starts_at > UTC_TIMESTAMP()) AS before_voting_start
              FROM candidates c JOIN positions p ON p.id = c.position_id WHERE c.id = ?`,
             [id]
@@ -530,7 +577,8 @@ router.put('/candidates/:id', verifyToken, requireRole('admin'),
         if (rows[0].status !== 'setup' || !rows[0].before_voting_start) {
             return res.status(409).json({ message: 'Candidates can only be edited before the scheduled voting start time' });
         }
-        let imagePath = rows[0].image_path, file = null;
+        let imagePath = rows[0].image_path;
+        let imagePublicId = rows[0].image_public_id;
         if (req.file) {
             if (!ext(req.file.buffer)) return res.status(400).json({ message: 'Choose a valid JPEG, PNG or WebP image' });
             let cleanImage;
@@ -540,29 +588,33 @@ router.put('/candidates/:id', verifyToken, requireRole('admin'),
                 if (error.code === 'IMAGE_TOO_LARGE') return res.status(400).json({ message: error.message });
                 return res.status(400).json({ message: 'The image could not be decoded. Choose a valid JPEG, PNG or WebP image.' });
             }
-            file = crypto.randomUUID() + '.' + ext(req.file.buffer);
-            await fs.mkdir(DIR, { recursive: true });
-            await fs.writeFile(path.join(DIR, file), cleanImage, { flag: 'wx' });
-            imagePath = '/uploads/candidates/' + file;
+            try {
+                const uploaded = await uploadCandidateImage(cleanImage);
+                imagePath = uploaded.imageUrl;
+                imagePublicId = uploaded.publicId;
+            } catch (error) {
+                console.error('Candidate replacement upload failed:', error.message);
+                return res.status(500).json({ message: 'The image could not be uploaded. Please try again.' });
+            }
         }
         try {
             const [updated] = await pool.query(
                 `UPDATE candidates c JOIN positions p ON p.id = c.position_id
-                 SET c.full_name = ?, c.image_path = ?, c.manifesto = ?
+                 SET c.full_name = ?, c.image_path = ?, c.image_public_id = ?, c.manifesto = ?
                  WHERE c.id = ? AND p.status = 'setup' AND p.voting_starts_at > UTC_TIMESTAMP()`,
-                [name, imagePath, manifesto, id]
+                [name, imagePath, imagePublicId, manifesto, id]
             );
             if (!updated.affectedRows) {
-                if (file) await removeImage(file);
+                if (req.file) await removeImage(imagePath, imagePublicId);
                 return res.status(409).json(ENTRY_CLOSED);
             }
         } catch (e) {
-            if (file) await removeImage(file);
+            if (req.file) await removeImage(imagePath, imagePublicId);
             throw e;
         }
-        if (file) await removeImage(path.basename(rows[0].image_path));
+        if (req.file) await removeImage(rows[0].image_path, rows[0].image_public_id);
         await addAuditLog('CANDIDATE_UPDATED', req.user.regNumber,
-            'candidate=' + id + (file ? ', photo replaced' : '') + ', manifesto updated');
+            'candidate=' + id + (req.file ? ', photo replaced' : '') + ', manifesto updated');
         res.json({ message: 'Candidate updated' });
     }));
 

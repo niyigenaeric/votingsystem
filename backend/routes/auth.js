@@ -42,6 +42,40 @@ function issueSession(student, res) {
     res.json({ role: student.role });
 }
 
+async function findStaffAccount(connection, usernameOrReg, usernameLogin) {
+    const queryParts = [
+        {
+            table: 'staff_accounts',
+            sql: `SELECT id, reg_number, username, full_name, email, university_position, role, is_active, password_hash,
+                    (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
+                  FROM staff_accounts WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role IN ('admin', 'auditor')`,
+            params: [usernameOrReg]
+        },
+        {
+            table: 'students',
+            sql: `SELECT id, reg_number, username, full_name, contact_email AS email, university_position, role, is_activated AS is_active,
+                    password_hash, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
+                  FROM students WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role IN ('admin', 'auditor')`,
+            params: [usernameOrReg]
+        }
+    ];
+
+    for (const query of queryParts) {
+        try {
+            const [rows] = await connection.query(query.sql, query.params);
+            if (rows[0]) {
+                return { ...rows[0], source_table: query.table };
+            }
+        } catch (error) {
+            const message = String(error.message || '');
+            if (!/doesn't exist|unknown table|ER_NO_SUCH_TABLE/i.test(message)) {
+                throw error;
+            }
+        }
+    }
+    return null;
+}
+
 router.post('/login', loginLimiter, async (req, res) => {
     try {
         const body = req.body || {};
@@ -147,34 +181,23 @@ router.post('/login', loginLimiter, async (req, res) => {
             return res.json({ requiresCode: true, role: 'voter' });
         }
 
-        const studentLookup = usernameLogin
-            ? "username = ? AND role IN ('admin', 'auditor')"
-            : 'reg_number = ?';
-        const [rows] = await pool.query(
-            `SELECT *, (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked
-             FROM students WHERE ${studentLookup}`,
-            [registrationNumber]
-        );
-        const student = rows[0];
+        const student = await findStaffAccount(pool, registrationNumber, usernameLogin);
         const passwordOk = await bcrypt.compare(
             password,
             student && student.password_hash ? student.password_hash : DUMMY_HASH
         );
-        if (!student || !student.is_activated || !student.password_hash) {
-            await addAuditLog('LOGIN_FAILED', registrationNumber, 'Unknown or inactive account');
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-        if (student.role === 'voter') {
-            await addAuditLog('LOGIN_FAILED', student.reg_number, 'Voter account must use voter sign-in');
+        if (!student || !student.is_active || !student.password_hash) {
+            await addAuditLog('LOGIN_FAILED', registrationNumber, 'Unknown or inactive staff account');
             return res.status(401).json({ message: 'Invalid credentials' });
         }
         if (student.is_locked) {
-            await addAuditLog('LOGIN_BLOCKED', student.reg_number, 'Account locked');
+            await addAuditLog('LOGIN_BLOCKED', student.reg_number, 'Staff account locked');
             return res.status(423).json({ message: 'Account temporarily locked. Try again later.' });
         }
         if (!passwordOk) {
+            const accountTable = student.source_table === 'staff_accounts' ? 'staff_accounts' : 'students';
             await pool.query(
-                `UPDATE students
+                `UPDATE ${accountTable}
                  SET failed_attempts = failed_attempts + 1,
                      locked_until = IF(failed_attempts + 1 >= ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), locked_until)
                  WHERE id = ?`,
@@ -184,30 +207,49 @@ router.post('/login', loginLimiter, async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        await pool.query('UPDATE students SET failed_attempts = 0, locked_until = NULL WHERE id = ?', [student.id]);
+        const accountTable = student.source_table === 'staff_accounts' ? 'staff_accounts' : 'students';
+        await pool.query(`UPDATE ${accountTable} SET failed_attempts = 0, locked_until = NULL WHERE id = ?`, [student.id]);
         if (!requiresSecondFactor(student.role)) {
             await addAuditLog('LOGIN_SUCCESS', student.reg_number, `Role ${student.role}`);
             return issueSession(student, res);
         }
 
+        const useStaffOtp = student.source_table === 'staff_accounts';
         const [[activeCodes]] = await pool.query(
-            "SELECT COUNT(*) AS count FROM otp_codes WHERE student_id = ? AND purpose = 'admin_login' AND expires_at > UTC_TIMESTAMP()",
+            useStaffOtp
+                ? "SELECT COUNT(*) AS count FROM otp_codes WHERE staff_id = ? AND purpose = 'admin_login' AND expires_at > UTC_TIMESTAMP()"
+                : "SELECT COUNT(*) AS count FROM otp_codes WHERE student_id = ? AND purpose = 'admin_login' AND expires_at > UTC_TIMESTAMP()",
             [student.id]
         );
         if (Number(activeCodes.count) >= 3) {
             return res.status(429).json({ message: 'Too many privileged sign-in codes were requested. Try again later.' });
         }
         const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-        await pool.query("UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'admin_login' AND used = 0", [student.id]);
         await pool.query(
-            "INSERT INTO otp_codes (student_id, purpose, code_hash, expires_at) VALUES (?, 'admin_login', ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE))",
+            useStaffOtp
+                ? "UPDATE otp_codes SET used = 1 WHERE staff_id = ? AND purpose = 'admin_login' AND used = 0"
+                : "UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'admin_login' AND used = 0",
+            [student.id]
+        );
+        await pool.query(
+            useStaffOtp
+                ? "INSERT INTO otp_codes (staff_id, purpose, code_hash, expires_at) VALUES (?, 'admin_login', ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE))"
+                : "INSERT INTO otp_codes (student_id, purpose, code_hash, expires_at) VALUES (?, 'admin_login', ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE))",
             [student.id, await bcrypt.hash(code, 10), LOGIN_CODE_MINUTES]
         );
         try {
-            await sendCode(student.contact_email, code, 'admin_login', student.username || registrationNumber);
+            await sendCode(student.email, code, 'admin_login', student.username || registrationNumber);
         } catch (error) {
-            console.error('Administrator sign-in email failed:', error.message);
-            await pool.query("UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'admin_login' AND used = 0", [student.id]);
+            console.error(
+                `Administrator sign-in email failed for ${student.full_name} (${student.username || registrationNumber}):`,
+                error.message
+            );
+            await pool.query(
+                useStaffOtp
+                    ? "UPDATE otp_codes SET used = 1 WHERE staff_id = ? AND purpose = 'admin_login' AND used = 0"
+                    : "UPDATE otp_codes SET used = 1 WHERE student_id = ? AND purpose = 'admin_login' AND used = 0",
+                [student.id]
+            );
             await addAuditLog('ADMIN_LOGIN_CODE_FAILED', student.reg_number, 'Email delivery failed');
             return res.status(503).json({ message: 'The sign-in code could not be sent. Please try again later.' });
         }
@@ -264,19 +306,32 @@ router.post('/login/verify', loginLimiter, async (req, res) => {
             return issueSession({ id: account.id, reg_number: account.reg_number, role: 'voter' }, res);
         }
         const [[student]] = await connection.query(
-            `SELECT id, reg_number, role, is_activated, contact_email
-             FROM students WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role IN ('admin', 'auditor') AND is_activated = 1 FOR UPDATE`,
+            `SELECT id, reg_number, username, full_name, email, role, is_active, university_position, 'staff_accounts' AS source_table
+             FROM staff_accounts WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role IN ('admin', 'auditor') AND is_active = 1 FOR UPDATE`,
             [registrationNumber]
         );
-        if (!student) {
-            await connection.rollback();
-            return res.status(401).json({ message: 'Invalid or expired sign-in code.' });
+        let adminAccount = student;
+        if (!adminAccount) {
+            const [[legacyStudent]] = await connection.query(
+                `SELECT id, reg_number, username, full_name, contact_email AS email, role, is_activated AS is_active, 'students' AS source_table
+                 FROM students WHERE ${usernameLogin ? 'username = ?' : 'reg_number = ?'} AND role IN ('admin', 'auditor') AND is_activated = 1 FOR UPDATE`,
+                [registrationNumber]
+            );
+            if (!legacyStudent) {
+                await connection.rollback();
+                return res.status(401).json({ message: 'Invalid or expired sign-in code.' });
+            }
+            adminAccount = legacyStudent;
         }
         const [[otp]] = await connection.query(
-            `SELECT id, code_hash, attempts FROM otp_codes
-             WHERE student_id = ? AND purpose = 'admin_login' AND used = 0
-               AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC LIMIT 1 FOR UPDATE`,
-            [student.id]
+            adminAccount.source_table === 'staff_accounts'
+                ? `SELECT id, code_hash, attempts FROM otp_codes
+                   WHERE staff_id = ? AND purpose = 'admin_login' AND used = 0
+                     AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC LIMIT 1 FOR UPDATE`
+                : `SELECT id, code_hash, attempts FROM otp_codes
+                   WHERE student_id = ? AND purpose = 'admin_login' AND used = 0
+                     AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+            [adminAccount.id]
         );
         if (!otp || Number(otp.attempts) >= MAX_CODE_TRIES) {
             await connection.rollback();
@@ -293,8 +348,8 @@ router.post('/login/verify', loginLimiter, async (req, res) => {
         }
         await connection.query('UPDATE otp_codes SET used = 1 WHERE id = ? AND used = 0', [otp.id]);
         await connection.commit();
-        await addAuditLog('LOGIN_SUCCESS', student.reg_number, `Role ${student.role}; second factor verified`);
-        issueSession(student, res);
+        await addAuditLog('LOGIN_SUCCESS', adminAccount.reg_number, `Role ${adminAccount.role}; second factor verified`);
+        issueSession(adminAccount, res);
     } catch (error) {
         await connection.rollback();
         console.error(error.message);

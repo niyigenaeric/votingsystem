@@ -105,6 +105,7 @@ async function main() {
     await ensureColumn('candidates', 'reg_number', 'VARCHAR(20) NULL');
     await ensureColumn('candidates', 'position_id', 'INT NULL');
     await ensureColumn('candidates', 'image_path', 'VARCHAR(255) NULL');
+    await ensureColumn('candidates', 'image_public_id', 'VARCHAR(255) NULL');
     await ensureColumn('candidates', 'manifesto', 'TEXT NULL');
     await pool.query("UPDATE candidates SET manifesto = '' WHERE manifesto IS NULL");
     const [candidateColumns] = await pool.query('SHOW COLUMNS FROM candidates');
@@ -117,6 +118,28 @@ async function main() {
 
     const [[studentId]] = await pool.query('SHOW COLUMNS FROM students LIKE "id"');
     if (!studentId || !studentId.Type) throw new Error('Could not determine the students.id database type.');
+    await pool.query(`CREATE TABLE IF NOT EXISTS staff_accounts (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        reg_number VARCHAR(20) NOT NULL,
+        username VARCHAR(50) NOT NULL,
+        full_name VARCHAR(100) NOT NULL,
+        email VARCHAR(150) NOT NULL,
+        university_position VARCHAR(100) NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'auditor') NOT NULL DEFAULT 'admin',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        failed_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+        locked_until DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_staff_accounts_reg_number (reg_number),
+        UNIQUE KEY uq_staff_accounts_username (username),
+        UNIQUE KEY uq_staff_accounts_email (email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await pool.query(`INSERT IGNORE INTO staff_accounts
+        (reg_number, username, full_name, email, university_position, password_hash, role, is_active, failed_attempts, locked_until)
+        SELECT reg_number, COALESCE(username, reg_number), full_name, contact_email, university_position, password_hash, role, is_activated, failed_attempts, locked_until
+        FROM students
+        WHERE role IN ('admin', 'auditor')`);
     await pool.query(`CREATE TABLE IF NOT EXISTS voter_accounts (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         reg_number VARCHAR(20) NOT NULL,
@@ -209,7 +232,8 @@ async function main() {
     if (!(await hasTable('otp_codes'))) {
         await pool.query(`CREATE TABLE otp_codes (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            student_id ${studentId.Type} NOT NULL,
+            student_id ${studentId.Type} NULL,
+            staff_id INT UNSIGNED NULL,
             purpose ENUM('activation', 'admin_login') NOT NULL DEFAULT 'activation',
             code_hash VARCHAR(255) NOT NULL,
             attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -217,13 +241,32 @@ async function main() {
             used TINYINT(1) NOT NULL DEFAULT 0,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             KEY idx_otp_student_purpose_expiry (student_id, purpose, expires_at, used),
+            KEY idx_otp_staff_purpose_expiry (staff_id, purpose, expires_at, used),
             CONSTRAINT fk_otp_codes_student FOREIGN KEY (student_id) REFERENCES students(id)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            CONSTRAINT fk_otp_codes_staff FOREIGN KEY (staff_id) REFERENCES staff_accounts(id)
                 ON UPDATE CASCADE ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     } else {
         await ensureColumn('otp_codes', 'purpose', "ENUM('activation','admin_login') NOT NULL DEFAULT 'activation'");
         await ensureColumn('otp_codes', 'attempts', 'TINYINT UNSIGNED NOT NULL DEFAULT 0');
+        await ensureColumn('otp_codes', 'staff_id', 'INT UNSIGNED NULL');
+        await pool.query(`ALTER TABLE otp_codes MODIFY COLUMN student_id ${studentId.Type} NULL`);
         await ensureIndex('otp_codes', 'idx_otp_student_purpose_expiry', ['student_id', 'purpose', 'expires_at', 'used']);
+        await ensureIndex('otp_codes', 'idx_otp_staff_purpose_expiry', ['staff_id', 'purpose', 'expires_at', 'used']);
+        const [[staffForeignKey]] = await pool.query(
+            `SELECT COUNT(*) AS count
+             FROM information_schema.table_constraints
+             WHERE constraint_schema = DATABASE()
+               AND table_name = 'otp_codes'
+               AND constraint_name = 'fk_otp_codes_staff'
+               AND constraint_type = 'FOREIGN KEY'`
+        );
+        if (Number(staffForeignKey.count) === 0) {
+            await pool.query(`ALTER TABLE otp_codes
+                ADD CONSTRAINT fk_otp_codes_staff FOREIGN KEY (staff_id) REFERENCES staff_accounts(id)
+                ON UPDATE CASCADE ON DELETE CASCADE`);
+        }
     }
 
     await pool.query(`CREATE TABLE IF NOT EXISTS audit_log (
