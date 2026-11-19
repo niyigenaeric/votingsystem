@@ -11,7 +11,7 @@
   <div class="wrap">
     <div class="card">
       <h1>Create a voter account</h1>
-      <p class="sub">Anyone may create an account. You must confirm your email using a link before you can sign in. Email confirmation does not by itself confirm voter-list eligibility.</p>
+      <p class="sub">Create an account to begin. Voter-list eligibility is checked separately, and eligible voters may still need official-email activation.</p>
       <form id="registrationForm" class="form-validation">
         <label for="reg">Registration number</label>
         <input type="text" id="reg" maxlength="9" inputmode="numeric" autocomplete="username" placeholder="223007576" required>
@@ -39,7 +39,7 @@
         <button id="submit" type="submit">Create account</button>
       </form>
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
-      <p class="sub" style="margin:14px 0 0">
+      <p id="resendHelp" class="sub" style="margin:14px 0 0" hidden>
         Didn't get a confirmation email?
         <a id="openResendDialog" href="#resendVerification" aria-haspopup="dialog" aria-controls="resendDialog">Resend the link</a>
       </p>
@@ -121,10 +121,13 @@
           show(data.message || 'Could not create the account.', 'err');
           return;
         }
-        show(data.message, response.status === 201 && data.emailSent ? 'ok' : 'err');
+        show(data.message, response.status === 201 && !(data.emailConfirmationRequired && !data.emailSent) ? 'ok' : 'err');
         if (response.status === 201) {
-          document.getElementById('resendReg').value = document.getElementById('reg').value.trim();
-          document.getElementById('resendEmail').value = document.getElementById('email').value.trim();
+          if (data.emailConfirmationRequired) {
+            document.getElementById('resendHelp').hidden = false;
+            document.getElementById('resendReg').value = document.getElementById('reg').value.trim();
+            document.getElementById('resendEmail').value = document.getElementById('email').value.trim();
+          }
         }
         form.reset();
       } catch {

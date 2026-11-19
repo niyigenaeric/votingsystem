@@ -9,6 +9,7 @@ const { sendCode } = require('../db/mailer');
 const { verifyToken } = require('../middleware/auth');
 const { getVoterEligibility, matchesVoterAccount } = require('../db/voterEligibility');
 const { requiresSecondFactor } = require('../db/authRules');
+const { isVoterEmailConfirmationRequired } = require('../db/voterEmailConfirmation');
 
 const router = express.Router();
 const SESSION_COOKIE = 'voting_session';
@@ -121,20 +122,22 @@ router.post('/login', loginLimiter, async (req, res) => {
                 await addAuditLog('LOGIN_FAILED', registrationNumber, 'Voter account email did not match');
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
-            const [[emailConfirmation]] = await pool.query(
-                `SELECT EXISTS(
-                    SELECT 1 FROM voter_email_verification_tokens
-                    WHERE voter_account_id = ? AND used = 1
-                ) AS email_verified`,
-                [voterAccount.id]
-            );
-            if (!emailConfirmation.email_verified) {
-                await addAuditLog('VOTER_EMAIL_VERIFICATION_REQUIRED', registrationNumber,
-                    'Registration email has not been confirmed');
-                return res.status(403).json({
-                    code: 'EMAIL_NOT_VERIFIED',
-                    message: 'Confirm your account email using the link we sent before signing in.'
-                });
+            if (isVoterEmailConfirmationRequired()) {
+                const [[emailConfirmation]] = await pool.query(
+                    `SELECT EXISTS(
+                        SELECT 1 FROM voter_email_verification_tokens
+                        WHERE voter_account_id = ? AND used = 1
+                    ) AS email_verified`,
+                    [voterAccount.id]
+                );
+                if (!emailConfirmation.email_verified) {
+                    await addAuditLog('VOTER_EMAIL_VERIFICATION_REQUIRED', registrationNumber,
+                        'Registration email has not been confirmed');
+                    return res.status(403).json({
+                        code: 'EMAIL_NOT_VERIFIED',
+                        message: 'Confirm your account email using the link we sent before signing in.'
+                    });
+                }
             }
 
             const [eligibleRows] = await pool.query(

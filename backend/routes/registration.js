@@ -7,6 +7,7 @@ const { lockAuditLog, appendAuditLog, releaseAuditLogLock } = require('../db/aud
 const { isValidEmail, isValidPassword, validateRegistration } = require('../db/voterRegistrationRules');
 const { passwordResetUrl, registrationVerificationUrl, sendPasswordReset, sendRegistrationConfirmation } = require('../db/mailer');
 const { featureSetupMessage } = require('../db/featureSetupError');
+const { isVoterEmailConfirmationRequired } = require('../db/voterEmailConfirmation');
 
 const router = express.Router();
 const registrationLimiter = rateLimit({
@@ -73,19 +74,23 @@ router.post('/register', registrationLimiter, async (req, res) => {
              VALUES (?, ?, ?, ?)`,
             [regNumber, fullName, email, passwordHash]
         );
-        verificationToken = createOneTimeToken();
-        await connection.query(
-            `INSERT INTO voter_email_verification_tokens (voter_account_id, token_hash, expires_at)
-             VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))`,
-            [account.insertId, verificationToken.hash, VERIFICATION_TOKEN_HOURS]
-        );
+        if (isVoterEmailConfirmationRequired()) {
+            verificationToken = createOneTimeToken();
+            await connection.query(
+                `INSERT INTO voter_email_verification_tokens (voter_account_id, token_hash, expires_at)
+                 VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))`,
+                [account.insertId, verificationToken.hash, VERIFICATION_TOKEN_HOURS]
+            );
+        }
         await lockAuditLog(connection);
         auditLockAcquired = true;
         await appendAuditLog(
             connection,
             'VOTER_ACCOUNT_CREATED',
             regNumber,
-            'Self-registration; email confirmation is required before sign-in'
+            isVoterEmailConfirmationRequired()
+                ? 'Self-registration; email confirmation is required before sign-in'
+                : 'Self-registration; registration email confirmation is disabled; sign-in code remains required'
         );
         await connection.commit();
         accountCreated = true;
@@ -110,27 +115,35 @@ router.post('/register', registrationLimiter, async (req, res) => {
         connection.release();
     }
     if (!accountCreated) return;
-    let message = 'Account created successfully! Go to your email and click the verification link before signing in.';
-    let emailSent = true;
-    try {
-        await sendRegistrationConfirmation(email, fullName, registrationVerificationUrl(verificationToken.token));
-    } catch (mailError) {
-        emailSent = false;
-        console.error('Voter registration confirmation email failed:', mailError.message);
-        message = 'Account created, but the confirmation email could not be sent. Use the resend form below to request another link.';
+    const emailConfirmationRequired = isVoterEmailConfirmationRequired();
+    let message = 'Account created. A one-time sign-in code will be sent to your account email. Voter-list eligibility and official-email activation are checked separately.';
+    let emailSent = null;
+    if (emailConfirmationRequired) {
+        message = 'Account created successfully! Go to your email and click the verification link before signing in.';
+        emailSent = true;
         try {
-            await pool.query(
-                'UPDATE voter_email_verification_tokens SET used = 2 WHERE token_hash = ? AND used = 0',
-                [verificationToken.hash]
-            );
-        } catch (cleanupError) {
-            console.error('Could not invalidate unsent voter confirmation link:', cleanupError.message);
+            await sendRegistrationConfirmation(email, fullName, registrationVerificationUrl(verificationToken.token));
+        } catch (mailError) {
+            emailSent = false;
+            console.error('Voter registration confirmation email failed:', mailError.message);
+            message = 'Account created, but the confirmation email could not be sent. Use the resend form below to request another link.';
+            try {
+                await pool.query(
+                    'UPDATE voter_email_verification_tokens SET used = 2 WHERE token_hash = ? AND used = 0',
+                    [verificationToken.hash]
+                );
+            } catch (cleanupError) {
+                console.error('Could not invalidate unsent voter confirmation link:', cleanupError.message);
+            }
         }
     }
-    res.status(201).json({ message, emailSent });
+    res.status(201).json({ message, emailSent, emailConfirmationRequired });
 });
 
 router.post('/email/verify', verificationLimiter, async (req, res) => {
+    if (!isVoterEmailConfirmationRequired()) {
+        return res.status(410).json({ message: 'Registration email confirmation is currently disabled.' });
+    }
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
     if (!/^[a-f0-9]{64}$/.test(token)) {
         return res.status(400).json({ message: 'This confirmation link is invalid or expired. Request a new one.' });
@@ -173,6 +186,9 @@ router.post('/email/verify', verificationLimiter, async (req, res) => {
 });
 
 router.post('/email/resend', resendLimiter, async (req, res) => {
+    if (!isVoterEmailConfirmationRequired()) {
+        return res.status(410).json({ message: 'Registration email confirmation is currently disabled.' });
+    }
     const regNumber = typeof req.body?.regNumber === 'string' ? req.body.regNumber.trim() : '';
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const genericMessage = 'If an unverified account matches those details, a new confirmation link has been sent.';
