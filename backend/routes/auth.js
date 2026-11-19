@@ -10,6 +10,7 @@ const { verifyToken } = require('../middleware/auth');
 const { getVoterEligibility, matchesVoterAccount } = require('../db/voterEligibility');
 const { requiresSecondFactor } = require('../db/authRules');
 const { isVoterEmailConfirmationRequired } = require('../db/voterEmailConfirmation');
+const { isVoterLoginCodeRequired } = require('../db/voterLoginCode');
 
 const router = express.Router();
 const SESSION_COOKIE = 'voting_session';
@@ -157,6 +158,11 @@ router.post('/login', loginLimiter, async (req, res) => {
                     'Official-email activation is required before voting');
             } else if (!eligibility.eligible) {
                 await addAuditLog('VOTER_ELIGIBILITY_DENIED', registrationNumber, eligibility.message);
+            }
+            if (!isVoterLoginCodeRequired()) {
+                await addAuditLog('VOTER_LOGIN_CODE_SKIPPED', registrationNumber,
+                    'Voter sign-in email code disabled by deployment configuration');
+                return issueSession({ id: voterAccount.id, reg_number: voterAccount.reg_number, role: 'voter' }, res);
             }
             const [[activeCodes]] = await pool.query(
                 'SELECT COUNT(*) AS count FROM voter_login_codes WHERE voter_account_id = ? AND used = 0 AND expires_at > UTC_TIMESTAMP()',
