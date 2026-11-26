@@ -7,21 +7,44 @@
   <link rel="stylesheet" href="style.css">
   <script src="theme-toggle.js" defer></script>
 </head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Create a voter account</h1>
-      <p class="sub">Create an account to begin. Voter-list eligibility is checked separately, and eligible voters may still need official-email activation.</p>
+<body class="page-register">
+  <header class="signin-header">
+    <a class="signin-brand" href="voter-login.html" aria-label="University of Rwanda Student Elections home">
+      <span class="signin-brand-seal" aria-hidden="true">UR</span>
+      <span class="signin-brand-name">UNIVERSITY<br>OF RWANDA</span>
+      <span class="signin-brand-divider" aria-hidden="true"></span>
+      <span class="signin-brand-product">Online Student Elections</span>
+    </a>
+    <span class="signin-secure"><span aria-hidden="true">✓</span> Secure voter services <i aria-hidden="true"></i></span>
+  </header>
+  <main class="register-main">
+    <div class="register-card">
+      <aside class="register-welcome">
+        <p class="register-kicker">STUDENT VOTER SERVICES</p>
+        <h2>Make your voice count.</h2>
+        <p>Create your voter account to access election services at the University of Rwanda.</p>
+        <ul>
+          <li><span aria-hidden="true">✓</span> Register with your student details</li>
+          <li><span aria-hidden="true">✓</span> Confirm your account by email</li>
+          <li><span aria-hidden="true">✓</span> Sign in securely to participate</li>
+        </ul>
+        <p class="register-eligibility">Voter eligibility is checked against the official list. Some accounts may also need official-email activation.</p>
+      </aside>
+      <section class="auth-card register-form-panel" aria-labelledby="registerTitle">
+      <p class="auth-eyebrow">University of Rwanda · Student Elections</p>
+      <h1 id="registerTitle">Create your account</h1>
+      <p class="sub auth-intro">Enter your student details and choose a secure password.</p>
       <form id="registrationForm" class="form-validation">
         <label for="reg">Registration number</label>
-        <input type="text" id="reg" maxlength="9" inputmode="numeric" autocomplete="username" placeholder="223007576" required>
+        <input type="text" id="reg" maxlength="9" inputmode="numeric" autocomplete="username" placeholder="e.g. 223007576" aria-describedby="regHint" required>
+        <p id="regHint" class="auth-field-hint">Use the registration number shown on your student record.</p>
         <label for="fullName">Full name</label>
-        <input type="text" id="fullName" maxlength="100" autocomplete="name" required>
+        <input type="text" id="fullName" maxlength="100" autocomplete="name" placeholder="Your full name" required>
         <label for="email">Email address</label>
-        <input type="email" id="email" maxlength="150" autocomplete="email" autocapitalize="off" spellcheck="false" required>
+        <input type="email" id="email" maxlength="150" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com" required>
         <label for="password">Create password</label>
         <div class="password-field" data-password-field>
-          <input type="password" id="password" maxlength="72" autocomplete="new-password" required>
+          <input type="password" id="password" maxlength="72" autocomplete="new-password" aria-describedby="passwordHint" required>
           <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
             <svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             <svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c6.4 0 10 7 10 7a15.7 15.7 0 0 1-3.1 3.9M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7a10.5 10.5 0 0 0 4-.8"></path></svg>
@@ -35,7 +58,7 @@
             <svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c6.4 0 10 7 10 7a15.7 15.7 0 0 1-3.1 3.9M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7a10.5 10.5 0 0 0 4-.8"></path></svg>
           </button>
         </div>
-        <p class="sub" style="margin:8px 0 0">Use at least 10 characters, including a letter and a number.</p>
+        <p id="passwordHint" class="auth-field-hint">At least 10 characters, with a letter and a number.</p>
         <button id="submit" type="submit">Create account</button>
       </form>
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
@@ -43,9 +66,10 @@
         Didn't get a confirmation email?
         <a id="openResendDialog" href="#resendVerification" aria-haspopup="dialog" aria-controls="resendDialog">Resend the link</a>
       </p>
-      <p class="sub" style="margin:8px 0 0">Already have an account? <a href="voter-login.html">Sign in</a></p>
+      <p class="auth-switch">Already registered? <a href="voter-login.html">Sign in</a></p>
+      </section>
     </div>
-  </div>
+  </main>
   <dialog id="resendDialog" class="mail-dialog" aria-labelledby="resendTitle">
     <div class="mail-dialog-card">
         <button id="closeResendDialog" class="mail-dialog-close" type="button" aria-label="Close">×</button>
@@ -61,8 +85,9 @@
         <div id="resendMsg" class="msg" role="status" aria-live="polite"></div>
     </div>
   </dialog>
-  <footer class="app-footer">
-    <span>University of Rwanda Student Elections</span>
+  <footer class="signin-footer">
+    <span>© 2026 University of Rwanda. All rights reserved.</span>
+    <span class="signin-footer-motto">Integrity &nbsp;·&nbsp; Transparency &nbsp;·&nbsp; Participation</span>
     <span>Election information and voter services</span>
   </footer>
 

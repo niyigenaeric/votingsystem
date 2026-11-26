@@ -7,19 +7,67 @@
   <link rel="stylesheet" href="style.css">
   <script src="theme-toggle.js" defer></script>
 </head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Voter sign in</h1>
-      <p class="sub">Sign in with your registration number, account email, and password. We will email you a one-time code to finish signing in.</p>
+<body class="page-signin">
+  <header class="signin-header">
+    <a class="signin-brand" href="voter-login.html" aria-label="University of Rwanda Student Elections home">
+      <span class="signin-brand-seal" aria-hidden="true">UR</span>
+      <span class="signin-brand-name">UNIVERSITY<br>OF RWANDA</span>
+      <span class="signin-brand-divider" aria-hidden="true"></span>
+      <span class="signin-brand-product">Online Student Elections</span>
+    </a>
+    <span class="signin-secure"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5z"/><path d="m9 12 2 2 4-5"/></svg> Secure &amp; transparent voting <i aria-hidden="true"></i></span>
+  </header>
+  <main class="signin-main">
+    <div class="signin-card">
+      <aside class="signin-visual" aria-label="University of Rwanda student elections">
+        <div class="signin-visual-brand">
+          <span class="signin-visual-seal" aria-hidden="true">UR</span>
+          <strong>UNIVERSITY OF RWANDA</strong>
+          <span class="signin-visual-rule"></span>
+          <h2>Student Elections</h2>
+          <p>Your Voice · Our University · A Better Tomorrow</p>
+        </div>
+        <svg class="ballot-illustration" viewBox="0 0 440 330" role="img" aria-label="A ballot being placed in a ballot box">
+          <path d="M0 250c95-40 167 12 260-9s129-63 180-59v148H0z" fill="#0871dc" opacity=".75"/>
+          <path d="M0 263c102-36 163 17 262-1s126-55 178-54" fill="none" stroke="#b8ddff" stroke-width="8"/>
+          <ellipse cx="219" cy="270" rx="119" ry="17" fill="#064786" opacity=".5"/>
+          <path d="M111 190h218l-21 100H132z" fill="#78b6ff"/>
+          <path d="M111 190h218v22H111z" fill="#d8eaff"/>
+          <path d="M163 196h114l-5 9H168z" fill="#07519d"/>
+          <circle cx="220" cy="249" r="27" fill="#07519d"/>
+          <path d="m206 249 10 10 21-24" fill="none" stroke="#dceeff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="m190 136 58-70 63 51-52 69z" fill="#f5f9ff"/>
+          <path d="m206 135 19 18 35-40" fill="none" stroke="#1672dc" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M255 105c25-26 47-43 72-42 17 0 30 11 39 24l-37 30-43 23z" fill="#b86f4e"/>
+          <path d="m344 71 44-27 19 28-46 32z" fill="#dbeaff"/>
+          <path d="m375 51 65-35 30 53-67 33z" fill="#064786"/>
+        </svg>
+        <span class="signin-visual-caption">Your voice shapes our future.</span>
+      </aside>
+      <section class="signin-form-panel" aria-labelledby="signinTitle">
+        <div class="signin-form-heading">
+          <span class="signin-heading-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><circle cx="24" cy="16" r="8"/><path d="M8 39v-4c0-7 7-11 16-11s16 4 16 11v4z"/><circle cx="9" cy="20" r="5"/><path d="M2 38v-3c0-4 3-7 8-8"/><circle cx="39" cy="20" r="5"/><path d="M46 38v-3c0-4-3-7-8-8"/></svg>
+          </span>
+          <div>
+            <h1 id="signinTitle">Voter sign in</h1>
+            <p class="sub auth-intro">Sign in with your registration number, account email, and password to cast your vote.</p>
+          </div>
+        </div>
+        <div class="signin-divider"></div>
       <form id="loginForm" class="form-validation">
         <label for="reg">Registration number</label>
-        <input type="text" id="reg" name="username" placeholder="Voter registration number" autocomplete="username" required>
+        <div class="signin-input-wrap"><span class="signin-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 16c.7-2 5.3-2 6 0m3-5h3m-3 3h3"/></svg></span>
+          <input type="text" id="reg" name="username" placeholder="e.g. 223007511" autocomplete="username" required>
+        </div>
         <label for="email">Email address</label>
-        <input type="email" id="email" name="email" placeholder="Email address on your voter account" autocomplete="email" autocapitalize="off" spellcheck="false" required>
+        <div class="signin-input-wrap"><span class="signin-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span>
+          <input type="email" id="email" name="email" placeholder="Enter your email address" autocomplete="email" autocapitalize="off" spellcheck="false" required>
+        </div>
         <label for="pw">Password</label>
-        <div class="password-field" data-password-field>
-          <input type="password" id="pw" name="password" placeholder="Voter account password" autocomplete="current-password" required>
+        <div class="password-field signin-input-wrap" data-password-field>
+          <span class="signin-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3m-4 4v3"/></svg></span>
+          <input type="password" id="pw" name="password" placeholder="Enter your password" autocomplete="current-password" required>
           <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
             <svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             <svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c6.4 0 10 7 10 7a15.7 15.7 0 0 1-3.1 3.9M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7a10.5 10.5 0 0 0 4-.8"></path></svg>
@@ -27,8 +75,8 @@
         </div>
         <button id="submit" type="submit">Sign in to vote</button>
       </form>
+      <div class="signin-form-actions"><a href="forgot-password.html">Forgot your password? <span aria-hidden="true">→</span></a></div>
       <p id="emailVerificationHelp" class="sub" hidden>Your email is not confirmed yet. <a href="voter-register.html#resendVerification">Request a new confirmation link</a>.</p>
-      <p class="sub" style="margin:8px 0 0"><a href="forgot-password.html">Forgot your password?</a></p>
       <form id="codeForm" class="form-validation" hidden>
         <label for="loginCode">Email sign-in code</label>
         <input type="text" id="loginCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
@@ -37,14 +85,18 @@
         <button id="backToLogin" class="link" type="button">Back to sign in</button>
       </form>
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
-      <p class="sub" style="margin:14px 0 0">Need an account? <a href="voter-register.html">Create one here</a></p>
-      <p class="sub" style="margin:8px 0 0">Need to verify your official voter-list email? <a href="activate.html">Verify your account</a></p>
-      <p class="sub" style="margin:8px 0 0">Administrator? <a href="index.html">Go to administrator sign in</a></p>
+      <div class="signin-or"><span>OR</span></div>
+      <div class="signin-help-box">
+        <p>Need an account? <a href="voter-register.html">Create one here <span aria-hidden="true">→</span></a></p>
+        <p>Need to verify your official voter-list email? <a href="activate.html">Verify your account <span aria-hidden="true">→</span></a></p>
+      </div>
+      <p class="signin-admin"><span aria-hidden="true">⚙</span> &nbsp;Administrator? <a href="index.html">Go to administrator sign in <span aria-hidden="true">→</span></a></p>
     </div>
-  </div>
-  <footer class="app-footer">
-    <span>University of Rwanda Student Elections</span>
-    <span>Election information and voter services</span>
+  </main>
+  <footer class="signin-footer">
+    <span>© 2026 University of Rwanda. All rights reserved.</span>
+    <span class="signin-footer-motto">Integrity &nbsp;·&nbsp; Transparency &nbsp;·&nbsp; Participation</span>
+    <span>▣ &nbsp;Powered by UR IT Services</span>
   </footer>
 
   <script src="password-toggle.js"></script>

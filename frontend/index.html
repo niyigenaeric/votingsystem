@@ -5,18 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administrator Panel Sign In - UR Student Elections</title>
   <link rel="stylesheet" href="style.css">
-  <script src="theme-toggle.js" defer></script>
 </head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Administrator Panel Sign In</h1>
-      <p class="sub">Sign in to the University of Rwanda Student Elections administration panel.</p>
+<body class="page-admin-login">
+  <main class="admin-login-shell">
+    <section class="admin-login-branding" aria-label="University of Rwanda Student Elections">
+      <div class="admin-login-wordmark">
+        <span class="admin-login-seal" aria-hidden="true">UR</span>
+        <span class="admin-login-university">UNIVERSITY OF<br><strong>RWANDA</strong></span>
+      </div>
+      <div class="admin-login-message">
+        <span class="admin-login-accent"></span>
+        <h1>Online Student Elections</h1>
+        <p>Your Voice · Our University · A Better Tomorrow</p>
+      </div>
+      <svg class="admin-ballot-art" viewBox="0 0 570 430" role="img" aria-label="A ballot being placed in a ballot box">
+        <path d="M0 322c120-63 222 5 344-23s165-72 226-84v215H0z" fill="#0871dc" opacity=".77"/>
+        <path d="M0 337c123-52 220 13 346-12s162-66 224-77" fill="none" stroke="#7fc2ff" stroke-width="12"/>
+        <ellipse cx="285" cy="365" rx="155" ry="24" fill="#001b3c" opacity=".62"/>
+        <path d="M140 246h290l-29 145H169z" fill="#1268c9"/>
+        <path d="M140 246h290v32H140z" fill="#81c8ff"/>
+        <path d="M204 253h162l-8 13H212z" fill="#031d42"/>
+        <circle cx="285" cy="331" r="39" fill="#064786"/>
+        <path d="m264 331 15 16 31-35" fill="none" stroke="#dceeff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="m237 171 74-95 83 67-68 95z" fill="#f6faff"/>
+        <path d="m258 169 24 23 46-54" fill="none" stroke="#1672dc" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M334 127c34-34 63-58 97-57 22 0 40 15 52 34l-49 40-56 31z" fill="#b86f4e"/>
+        <path d="m449 81 57-36 26 37-60 42z" fill="#dbeaff"/>
+        <path d="m490 54 83-44 38 69-86 43z" fill="#061b3d"/>
+      </svg>
+    </section>
+    <section class="admin-login-side">
+      <div class="admin-login-secure">
+        <span class="admin-secure-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5z"/><path d="M9 11V9a3 3 0 0 1 6 0v2m-7 0h8v6H8z"/></svg></span>
+        <span><strong>Secure &amp; confidential</strong><small>Admin access only</small></span>
+      </div>
+      <div class="admin-login-card">
+        <div class="admin-login-icon" aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="27" cy="20" r="11"/><path d="M7 54v-5c0-9 8-15 20-15 6 0 11 2 15 5"/><path d="M48 29a11 11 0 1 0 0 22 11 11 0 0 0 0-22Zm0-5v5m0 22v5m16-16h-5m-22 0h-5m27-11-4 4m-16 16-4 4m24 0-4-4m-16-16-4-4"/></svg></div>
+        <h2>Administrator Panel Sign In</h2>
+        <p class="admin-login-intro">Sign in to the University of Rwanda Student Elections administration panel.</p>
       <form id="adminLoginForm" autocomplete="on">
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" placeholder="Administrator username" autocomplete="username">
+      <div class="admin-login-input"><span aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2z"/></svg></span><input type="text" id="username" name="username" placeholder="Administrator username" autocomplete="username"></div>
       <label for="pw">Password</label>
-      <div class="password-field" data-password-field>
+      <div class="password-field admin-login-input" data-password-field>
+        <span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3m-4 4v3"/></svg></span>
         <input type="password" id="pw" name="password" placeholder="Administrator password" autocomplete="current-password">
         <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" aria-pressed="false">
           <svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
@@ -31,13 +63,14 @@
         <p id="codeNotice" class="sub">Enter the code sent to your registered staff email.</p>
         <button id="verifyCode" type="button">Verify code</button>
       </div>
-      <p class="sub" style="margin:14px 0 0">New voter? <a href="voter-register.html">Create an account</a></p>
-      <p class="sub" style="margin:8px 0 0">Student voter? <a href="voter-login.html">Use voter sign in</a></p>
-      <div id="msg" class="msg"></div>
+      <div class="admin-login-help"><span>Need help?</span></div>
+      <div class="admin-login-links"><a href="voter-register.html">Create an account</a><span aria-hidden="true"></span><a href="voter-login.html">Use voter sign in</a></div>
+      <div id="msg" class="msg" role="status" aria-live="polite"></div>
     </div>
-  </div>
-  <footer class="app-footer">
-    <span>University of Rwanda Student Elections</span>
+    </section>
+  </main>
+  <footer class="admin-login-footer">
+    <span>© 2026 University of Rwanda. All rights reserved.</span>
     <span>Election information and voter services</span>
   </footer>
 

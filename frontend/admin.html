@@ -375,7 +375,12 @@
             }
             if (next === 'open') p.openVotingButton = button;
             button.addEventListener('click', () => updatePositionStatus(p, next));
-            actions.appendChild(button);
+            if (next === 'open') {
+              button.classList.add('admin-table-open-action');
+              detailsCell.appendChild(button);
+            } else {
+              actions.appendChild(button);
+            }
           } else if (role === 'admin' && p.status === 'closed' && !p.published) {
             const button = el('button', 'admin-action', 'Publish results');
             button.type = 'button';
