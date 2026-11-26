@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS positions (
   candidate_entry_closed TINYINT(1) NOT NULL DEFAULT 0,
   voting_starts_at DATETIME NULL,
   voting_ends_at DATETIME NULL,
+  position_voter_list_uploaded_at DATETIME NULL,
   results_published TINYINT(1) NOT NULL DEFAULT 0,
   published_at DATETIME NULL,
   results_hash CHAR(64) NULL,
@@ -117,6 +118,18 @@ CREATE TABLE IF NOT EXISTS positions (
   PRIMARY KEY (id),
   UNIQUE KEY uq_positions_title_campus (title, campus),
   KEY idx_positions_status_end (status, voting_ends_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS position_voters (
+  position_id INT NOT NULL,
+  student_id INT UNSIGNED NOT NULL,
+  added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (position_id, student_id),
+  KEY idx_position_voters_student (student_id),
+  CONSTRAINT fk_position_voters_position FOREIGN KEY (position_id) REFERENCES positions(id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_position_voters_student FOREIGN KEY (student_id) REFERENCES students(id)
+    ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS election_notification_reads (

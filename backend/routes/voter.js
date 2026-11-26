@@ -35,7 +35,11 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
         const [receipts] = eligible
             ? await pool.query('SELECT position_id FROM voter_receipts WHERE student_id = ?', [student.id])
             : [[]];
+        const [positionVoterRows] = eligible
+            ? await pool.query('SELECT position_id FROM position_voters WHERE student_id = ?', [student.id])
+            : [[]];
         const votedPositionIds = receipts.map(receipt => Number(receipt.position_id));
+        const positionVoterIds = new Set(positionVoterRows.map(row => Number(row.position_id)));
         const tally = await getTally({ includeArchived: false });
         const [positions] = await pool.query(
             `SELECT id, campus, DATE_FORMAT(DATE_ADD(voting_starts_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s+02:00') AS voting_starts_at,
@@ -51,23 +55,27 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
             positions: tally.positions.map(position => {
                 const schedule = positionById.get(Number(position.id));
                 const hasVoted = votedPositionIds.includes(Number(position.id));
+                const positionListIncluded = positionVoterIds.has(Number(position.id));
                 const positionCampus = schedule.campus || null;
                 const canVote = canVoteForPosition({
                     eligible,
                     voterCampus: student && student.campus,
                     positionCampus,
+                    positionListIncluded,
                     status: position.status,
                     hasVoted
                 });
                 const allowedForPosition = isEligibleForPosition({
                     eligible,
                     voterCampus: student && student.campus,
-                    positionCampus
+                    positionCampus,
+                    positionListIncluded
                 });
                 const votingMessage = getPositionVotingMessage({
                     eligible,
                     voterCampus: student && student.campus,
                     positionCampus,
+                    positionListIncluded,
                     status: position.status,
                     hasVoted
                 });
@@ -78,6 +86,7 @@ router.get('/ballot', verifyToken, requireRole('voter'), async (req, res) => {
                     status: position.status,
                     published: position.published,
                     allowedForPosition,
+                    positionListIncluded,
                     canVote,
                     votingMessage,
                     votingStartsAt: schedule.voting_starts_at,
@@ -173,6 +182,14 @@ router.post('/positions/:id/vote', verifyToken, requireRole('voter'), async (req
         if (rejection) {
             await connection.rollback();
             return res.status(rejection.status).json({ message: rejection.message });
+        }
+        const [[positionVoter]] = await connection.query(
+            'SELECT student_id FROM position_voters WHERE position_id = ? AND student_id = ?',
+            [positionId, student.id]
+        );
+        if (!positionVoter) {
+            await connection.rollback();
+            return res.status(403).json({ message: 'You are not on the approved voter list for this position.' });
         }
         for (let attempt = 1; ; attempt++) {
             try {

@@ -5113,6 +5113,11 @@ html[data-theme="dark"] .register-form-panel.auth-card {
   color: #5d4b80;
 }
 
+.position-state.needs-voter-list {
+  background: #fff0e2;
+  color: #8a4c10;
+}
+
 .position-status-reason,
 .admin-status-reason {
   display: block;
@@ -5378,6 +5383,11 @@ html[data-theme="dark"] .position-state.archived {
   color: #d4c3f5;
 }
 
+html[data-theme="dark"] .position-state.needs-voter-list {
+  background: #493321;
+  color: #ffd2a3;
+}
+
 html[data-theme="dark"] .admin-integrity-state.recorded {
   background: #473b20;
   color: #ffdf86;
@@ -5441,4 +5451,128 @@ html[data-theme="dark"] .admin-result-vote-share {
   .admin-audit-toolbar {
     grid-template-columns: 1fr;
   }
+}
+
+.position-voter-list {
+  margin: 18px 0 24px;
+  padding: 18px;
+  border: 1px solid #dfe7ef;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.position-voter-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.position-voter-list-heading .eyebrow {
+  margin-bottom: 5px;
+}
+
+.position-voter-list-heading h2 {
+  margin: 0;
+  color: #1c2c40;
+  font-size: 17px;
+}
+
+.position-voter-list-heading .sub {
+  margin: 5px 0 0;
+  color: #68788c;
+  font-size: 12px;
+}
+
+.position-voter-list-count {
+  display: grid;
+  min-width: 54px;
+  height: 48px;
+  place-items: center;
+  padding: 0 10px;
+  border: 1px solid #cfe0e8;
+  border-radius: 12px;
+  background: #fff;
+  color: #006887;
+  font-size: 19px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-voter-list-help {
+  margin: 12px 0;
+  color: #68788c;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.position-voter-upload {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 13px;
+  border-top: 1px solid #e3eaf0;
+}
+
+.position-voter-upload[hidden] {
+  display: none;
+}
+
+.position-voter-upload label {
+  width: 100%;
+  margin: 0;
+  color: #42566c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.position-voter-upload input[type=file] {
+  min-width: min(100%, 260px);
+  max-width: 100%;
+  margin: 0;
+  font-size: 12px;
+}
+
+.position-voter-upload .admin-action {
+  max-width: none;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.position-voter-list > .msg:empty {
+  display: none;
+}
+
+.admin-progress-dot.is-list-needed {
+  background: #c64b48;
+}
+
+html[data-theme="dark"] .position-voter-list {
+  border-color: #354352;
+  background: #1a2530;
+}
+
+html[data-theme="dark"] .position-voter-list-heading h2 {
+  color: #edf3f8;
+}
+
+html[data-theme="dark"] .position-voter-list-heading .sub,
+html[data-theme="dark"] .position-voter-list-help,
+html[data-theme="dark"] .position-voter-upload label {
+  color: #aab8c6;
+}
+
+html[data-theme="dark"] .position-voter-list-count {
+  border-color: #426678;
+  background: #202c38;
+  color: #8edcf0;
+}
+
+html[data-theme="dark"] .position-voter-upload {
+  border-color: #354352;
+}
+
+html[data-theme="dark"] .admin-progress-dot.is-list-needed {
+  background: #c64b48;
 }

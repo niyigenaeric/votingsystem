@@ -37,13 +37,13 @@
 
             <div class="card voter-admin-card">
               <div class="voter-list-heading">
-                <h2>Voter list</h2>
+                <h2>Official voter roster</h2>
                 <a class="eligible-voters-shortcut" href="eligible-voters.html">View or manage all voters</a>
               </div>
               <p class="sub" id="voterSummary">Loading...</p>
-              <p class="sub">CSV header: <code>reg_number,full_name,contact_email,campus</code>. Every field must be filled on every row; the entire file is rejected if any row is incomplete or invalid.</p>
+              <p class="sub">This is the university-wide official roster, not a position voter list. Each election position has its own separate email CSV in its position settings. Roster CSV header: <code>reg_number,full_name,contact_email,campus</code>.</p>
               <input type="file" id="voterFile" accept=".csv,text/csv">
-              <button type="button" id="voterUpload">Upload voter list</button>
+              <button type="button" id="voterUpload">Upload official roster</button>
               <label for="checkReg">Check a student</label>
               <input type="text" id="checkReg" maxlength="9" inputmode="numeric" placeholder="223007576">
               <button type="button" id="checkBtn">Check</button>
@@ -580,7 +580,7 @@
             const total = rows.reduce((s, r) => s + r.total, 0);
             $('voterSummary').textContent = total
               ? total + ' eligible students loaded. ' + rows.map(r => r.campus + ': ' + r.total).join(', ') + '.'
-              : 'No voter list yet. Upload it first so candidates and voters can be checked.';
+              : 'No official voter roster yet. Upload it first; each position also needs its own voter email CSV before it can open.';
           } catch (e) { $('voterSummary').textContent = e.message; }
         }
         api('/api/admin/campuses').then(list => {

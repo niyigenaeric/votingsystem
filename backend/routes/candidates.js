@@ -14,6 +14,7 @@ const { CAMPUSES, canonical } = require('../db/campuses');
 const { MAX_MANIFESTO_LENGTH, canRescheduleCandidateEntry, canReschedulePosition, isValidManifesto } = require('../db/candidateRules');
 const { hashPublishedResults } = require('../db/resultIntegrity');
 const { verifyToken, requireRole } = require('../middleware/auth');
+const { parsePositionVoterCsv } = require('../db/positionVoterCsv');
 
 const router = express.Router();
 const cloudinaryConfigured = Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
@@ -150,6 +151,8 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
     await closeExpiredPositions();
     const [pos] = await pool.query(
         `SELECT id, title, campus, status, results_published, candidate_entry_closed, archived_at,
+                position_voter_list_uploaded_at,
+                (SELECT COUNT(*) FROM position_voters WHERE position_id = positions.id) AS voter_list_count,
                 CONCAT(DATE_FORMAT(DATE_ADD(voting_starts_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS voting_starts_at,
                 CONCAT(DATE_FORMAT(DATE_ADD(voting_ends_at, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS voting_ends_at,
                 CONCAT(DATE_FORMAT(DATE_ADD(candidate_entry_deadline, INTERVAL 2 HOUR), '%Y-%m-%dT%H:%i:%s'), '+02:00') AS candidate_entry_deadline,
@@ -171,6 +174,8 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
         positions: pos.map(p => ({
             id: p.id, title: p.title, campus: p.campus || null, status: p.status, published: !!p.results_published,
             archived: !!p.archived_at,
+            voterListCount: Number(p.voter_list_count),
+            voterListUploadedAt: p.position_voter_list_uploaded_at,
             candidateEntryDeadline: p.candidate_entry_deadline,
             votingStartsAt: p.voting_starts_at,
             votingEndsAt: p.voting_ends_at,
@@ -189,6 +194,90 @@ router.get('/candidates', verifyToken, requireRole('admin', 'auditor'), wrap(asy
         }))
     });
 }));
+
+router.post('/positions/:id/voter-list', verifyToken, requireRole('admin'),
+    express.text({ type: ['text/csv', 'text/plain'], limit: '1mb' }),
+    wrap(async (req, res) => {
+        const id = Number.parseInt(req.params.id, 10);
+        if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: 'Position ID is invalid.' });
+        if (typeof req.body !== 'string') return res.status(400).json({ message: 'Send the CSV as text/csv.' });
+        const parsed = parsePositionVoterCsv(req.body);
+        if (parsed.error) return res.status(400).json({ message: parsed.error });
+        if (parsed.received > 5000) return res.status(400).json({ message: 'Maximum 5000 voter emails per position.' });
+        if (parsed.invalid.length) {
+            return res.status(400).json({
+                message: 'The position voter CSV was not uploaded. Correct every row and try again.',
+                invalidLines: parsed.invalid.slice(0, 20)
+            });
+        }
+
+        const connection = await pool.getConnection();
+        let auditLockAcquired = false;
+        try {
+            await connection.beginTransaction();
+            const [[position]] = await connection.query(
+                `SELECT id, title, campus, status, archived_at
+                 FROM positions WHERE id = ? FOR UPDATE`,
+                [id]
+            );
+            if (!position) {
+                await connection.rollback();
+                return res.status(404).json({ message: 'Position not found.' });
+            }
+            if (position.archived_at || position.status !== 'setup') {
+                await connection.rollback();
+                return res.status(409).json({ message: 'The voter list can only be uploaded or replaced before this position opens.' });
+            }
+
+            const [students] = await connection.query(
+                `SELECT id, contact_email, campus FROM students
+                 WHERE role = 'voter' AND LOWER(contact_email) IN (?)`,
+                [parsed.emails]
+            );
+            const studentsByEmail = new Map(students.map(student => [student.contact_email.trim().toLowerCase(), student]));
+            const invalidLines = [];
+            const matchedStudents = [];
+            parsed.emails.forEach((email, index) => {
+                const student = studentsByEmail.get(email);
+                if (!student) {
+                    invalidLines.push(`Line ${index + 2}: email is not on the official eligible voter roster`);
+                } else if (position.campus && position.campus !== student.campus) {
+                    invalidLines.push(`Line ${index + 2}: voter is not on the official roster for this position's campus`);
+                } else {
+                    matchedStudents.push(student);
+                }
+            });
+            if (invalidLines.length) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'The position voter CSV was not uploaded. Correct every row and try again.',
+                    invalidLines: invalidLines.slice(0, 20)
+                });
+            }
+
+            await connection.query('DELETE FROM position_voters WHERE position_id = ?', [id]);
+            await connection.query(
+                'INSERT INTO position_voters (position_id, student_id) VALUES ?',
+                [matchedStudents.map(student => [id, student.id])]
+            );
+            await connection.query(
+                'UPDATE positions SET position_voter_list_uploaded_at = UTC_TIMESTAMP() WHERE id = ? AND status = ?',
+                [id, 'setup']
+            );
+            await lockAuditLog(connection);
+            auditLockAcquired = true;
+            await appendAuditLog(connection, 'POSITION_VOTER_LIST_UPLOADED', req.user.regNumber,
+                `position=${id}, title=${position.title}, eligibleEmails=${matchedStudents.length}`);
+            await connection.commit();
+            res.json({ positionId: id, eligibleVoters: matchedStudents.length });
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            if (auditLockAcquired) await releaseAuditLogLock(connection);
+            connection.release();
+        }
+    }));
 
 router.put('/positions/:id', verifyToken, requireRole('admin'), wrap(async (req, res) => {
     const id = Number.parseInt(req.params.id, 10);
@@ -215,6 +304,7 @@ router.put('/positions/:id', verifyToken, requireRole('admin'), wrap(async (req,
         await connection.beginTransaction();
         const [[position]] = await connection.query(
             `SELECT id, title, campus, status, candidate_entry_deadline, voting_starts_at, voting_ends_at,
+                    position_voter_list_uploaded_at,
                     archived_at, (voting_starts_at IS NOT NULL AND voting_starts_at <= UTC_TIMESTAMP()) AS start_reached,
                     EXISTS(
                         SELECT 1 FROM candidates position_candidates
@@ -277,16 +367,21 @@ router.put('/positions/:id', verifyToken, requireRole('admin'), wrap(async (req,
             return res.status(409).json({ message: 'Another position already uses this name and campus' });
         }
 
+        const campusChanged = campus !== (position.campus || '');
+        if (campusChanged) {
+            await connection.query('DELETE FROM position_voters WHERE position_id = ?', [id]);
+        }
         await connection.query(
             `UPDATE positions
-             SET title = ?, campus = ?, candidate_entry_deadline = ?, voting_starts_at = ?, voting_ends_at = ?
+             SET title = ?, campus = ?, candidate_entry_deadline = ?, voting_starts_at = ?, voting_ends_at = ?,
+                 position_voter_list_uploaded_at = CASE WHEN ? THEN NULL ELSE position_voter_list_uploaded_at END
              WHERE id = ? AND status = 'setup' AND archived_at IS NULL`,
-            [title, campus, deadline, votingStart, votingEnd, id]
+            [title, campus, deadline, votingStart, votingEnd, campusChanged, id]
         );
         await lockAuditLog(connection);
         auditLockAcquired = true;
         await appendAuditLog(connection, 'POSITION_UPDATED', req.user.regNumber,
-            `position=${id}, fromTitle=${position.title}, fromCampus=${position.campus || 'university-wide'}, title=${title}, campus=${campus || 'university-wide'}, candidateDeadline=${deadline}, votingStart=${votingStart}, votingEnd=${votingEnd}`);
+            `position=${id}, fromTitle=${position.title}, fromCampus=${position.campus || 'university-wide'}, title=${title}, campus=${campus || 'university-wide'}, voterListReset=${campusChanged}, candidateDeadline=${deadline}, votingStart=${votingStart}, votingEnd=${votingEnd}`);
         await connection.commit();
         res.json({ id, title, campus: campus || null });
     } catch (error) {
@@ -764,6 +859,12 @@ router.post('/positions/:id/status', verifyToken, requireRole('admin'), wrap(asy
         }
         const [[result]] = await pool.query('SELECT COUNT(*) AS total FROM candidates WHERE position_id = ?', [id]);
         if (!result.total) return res.status(400).json({ message: 'Add at least one candidate before opening this position' });
+        const [[voterList]] = await pool.query(
+            'SELECT COUNT(*) AS total FROM position_voters WHERE position_id = ?', [id]
+        );
+        if (!Number(voterList.total)) {
+            return res.status(400).json({ message: 'Upload a position-specific voter email CSV before opening this position.' });
+        }
     }
     const [result] = await pool.query(
         `UPDATE positions SET status = ? WHERE id = ? AND status = ?

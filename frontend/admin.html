@@ -137,6 +137,7 @@
                 <div><span class="admin-progress-dot is-scheduled" aria-hidden="true"></span><span>Scheduled</span><strong id="progressScheduled">0</strong></div>
                 <div><span class="admin-progress-dot is-closed" aria-hidden="true"></span><span>Closed or published</span><strong id="progressClosed">0</strong></div>
                 <div><span class="admin-progress-dot is-attention" aria-hidden="true"></span><span>Schedule needs attention</span><strong id="progressAttention">0</strong></div>
+                <div><span class="admin-progress-dot is-list-needed" aria-hidden="true"></span><span>Position voter list needed</span><strong id="progressVoterListNeeded">0</strong></div>
               </div>
             </article>
           </div>
@@ -292,6 +293,9 @@
           ? { key: 'published', label: 'Results published', reason: 'The results are published for eligible voters.' }
           : { key: 'closed', label: 'Closed', reason: 'Review the tally and publish results when they are ready.' };
       }
+      if (!Number(position.voterListCount)) {
+        return { key: 'needs-voter-list', label: 'Voter list needed', reason: 'Upload this position’s separate voter email CSV before opening voting.' };
+      }
       const start = Date.parse(position.votingStartsAt || '');
       const end = Date.parse(position.votingEndsAt || '');
       if (!Number.isFinite(start) || !Number.isFinite(end)) {
@@ -410,6 +414,7 @@
         $('progressScheduled').textContent = scheduledCount;
         $('progressClosed').textContent = (stateCounts.closed || 0) + (stateCounts.published || 0);
         $('progressAttention').textContent = stateCounts['needs-schedule'] || 0;
+        $('progressVoterListNeeded').textContent = stateCounts['needs-voter-list'] || 0;
         $('activeVotingText').textContent = openCount
           ? 'Voting active for ' + openCount + (openCount === 1 ? ' position' : ' positions')
           : awaitingCount
@@ -499,7 +504,7 @@
             button.type = 'button';
             const votingStart = Date.parse(p.votingStartsAt || '');
             const votingEnd = Date.parse(p.votingEndsAt || '');
-            if (next === 'open' && (!Number.isFinite(votingStart) || !Number.isFinite(votingEnd)
+            if (next === 'open' && (!Number(p.voterListCount) || !Number.isFinite(votingStart) || !Number.isFinite(votingEnd)
               || votingStart > Date.now() || votingEnd <= Date.now())) {
               button.disabled = true;
               button.title = state.reason;
@@ -622,6 +627,14 @@
         }
         const start = Date.parse(position.votingStartsAt || '');
         const end = Date.parse(position.votingEndsAt || '');
+        if (!Number(position.voterListCount)) {
+          node.textContent = 'Upload this position’s voter email list before opening';
+          if (position.openVotingButton) {
+            position.openVotingButton.disabled = true;
+            position.openVotingButton.title = 'Upload this position’s separate voter email CSV before opening voting';
+          }
+          return;
+        }
         if (!Number.isFinite(start) || !Number.isFinite(end)) {
           node.textContent = 'Set a valid voting schedule before opening';
           if (position.openVotingButton) position.openVotingButton.disabled = true;

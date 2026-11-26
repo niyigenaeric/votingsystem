@@ -14,19 +14,20 @@ function canReschedulePosition({ status, archived, hasVotes }) {
     return status === 'setup' && !archived && !hasVotes;
 }
 
-function isEligibleForPosition({ eligible, voterCampus, positionCampus }) {
-    return !!eligible && (!positionCampus || positionCampus === voterCampus);
+function isEligibleForPosition({ eligible, voterCampus, positionCampus, positionListIncluded }) {
+    return !!eligible && !!positionListIncluded && (!positionCampus || positionCampus === voterCampus);
 }
 
-function canVoteForPosition({ eligible, voterCampus, positionCampus, status, hasVoted }) {
-    return isEligibleForPosition({ eligible, voterCampus, positionCampus })
+function canVoteForPosition({ eligible, voterCampus, positionCampus, positionListIncluded, status, hasVoted }) {
+    return isEligibleForPosition({ eligible, voterCampus, positionCampus, positionListIncluded })
         && status === 'open'
         && !hasVoted;
 }
 
-function getPositionVotingMessage({ eligible, voterCampus, positionCampus, status, hasVoted }) {
+function getPositionVotingMessage({ eligible, voterCampus, positionCampus, positionListIncluded, status, hasVoted }) {
     if (!eligible) return 'You are not allowed to vote because your account is not eligible.';
-    if (!isEligibleForPosition({ eligible, voterCampus, positionCampus })) {
+    if (!positionListIncluded) return 'You are not on the approved voter list for this position.';
+    if (!isEligibleForPosition({ eligible, voterCampus, positionCampus, positionListIncluded })) {
         return 'You are not eligible to vote for this campus position.';
     }
     if (status === 'setup') return 'Voting has not opened for this position yet.';

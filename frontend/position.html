@@ -51,6 +51,23 @@
                 <button type="button" class="danger" id="deletePosition" style="display:none">Delete position</button>
             </div>
             <div id="msg" class="msg"></div>
+            <section class="position-voter-list" id="positionVoterList" aria-labelledby="positionVoterListTitle">
+                <div class="position-voter-list-heading">
+                    <div>
+                        <p class="eyebrow">POSITION ACCESS</p>
+                        <h2 id="positionVoterListTitle">Voter email list</h2>
+                        <p class="sub" id="positionVoterListSummary">Loading this position's eligible voter count…</p>
+                    </div>
+                    <span class="position-voter-list-count" id="positionVoterListCount">—</span>
+                </div>
+                <p class="sub position-voter-list-help" id="positionVoterListHelp">Upload a separate CSV for this position. The file must contain one <code>email</code> column. Addresses must also match eligible students on the official voter roster and, for campus positions, belong to the assigned campus. The CSV is imported into this position’s list; the original file is not retained.</p>
+                <div class="position-voter-upload" id="positionVoterUpload" hidden>
+                    <label for="positionVoterCsv">Position voter CSV</label>
+                    <input type="file" id="positionVoterCsv" accept=".csv,text/csv">
+                    <button type="button" class="admin-action" id="uploadPositionVoters">Upload this position's list</button>
+                </div>
+                <div class="msg" id="positionVoterMsg" role="status" aria-live="polite"></div>
+            </section>
             <form id="positionEditBox" class="position-edit-box" hidden>
                 <h2>Edit position details</h2>
                 <label for="positionTitleInput">Position or group name</label>
@@ -145,6 +162,17 @@
                 if (!pos) return show('Position not found.', 'err');
                 $('status').textContent = pos.archived ? 'ARCHIVED' : pos.status.toUpperCase();
                 $('status').className = 'badge ' + pos.status;
+                const voterListCount = Number(pos.voterListCount) || 0;
+                $('positionVoterListCount').textContent = voterListCount.toLocaleString();
+                $('positionVoterListSummary').textContent = voterListCount
+                    ? voterListCount.toLocaleString() + (voterListCount === 1 ? ' voter is' : ' voters are')
+                        + ' included in this position-specific email list.'
+                    : 'No position-specific voter email list has been uploaded.';
+                const canManageVoterList = role === 'admin' && pos.status === 'setup' && !pos.archived;
+                $('positionVoterUpload').hidden = !canManageVoterList;
+                $('positionVoterListHelp').textContent = voterListCount
+                    ? 'This position has its own voter list. Replacing it is allowed only before voting opens. Voters must also remain eligible on the official voter roster and match the account and activation checks. The uploaded CSV is imported into this position’s list; the original file is not retained.'
+                    : 'Upload a separate CSV for this position before opening voting. Use one email column with the header email. Addresses must match eligible students on the official voter roster and, for campus positions, belong to the assigned campus. The uploaded CSV is imported into this position’s list; the original file is not retained.';
                 const entryOpen = !pos.candidateEntryClosed;
                 const editable = role === 'admin' && pos.canEditCandidates;
                 $('title').textContent = pos.title + (pos.campus ? ' — ' + pos.campus : '');
@@ -193,6 +221,34 @@
                             $('editBox').style.display = 'block';
                             $('eName').focus();
                         });
+                        $('uploadPositionVoters').addEventListener('click', async () => {
+                            const file = $('positionVoterCsv').files[0];
+                            if (!file) return showPositionVoterMessage('Choose this position’s voter email CSV first.', 'err');
+                            if (file.size > 1024 * 1024) return showPositionVoterMessage('CSV must be 1 MB or smaller.', 'err');
+                            if (pos.voterListCount && !confirm('Replace the voter email list for ' + pos.title + '? This affects only this position.')) return;
+                            const button = $('uploadPositionVoters');
+                            button.disabled = true;
+                            showPositionVoterMessage('Validating and importing this position’s email list…', '');
+                            try {
+                                const response = await call('/api/admin/positions/' + encodeURIComponent(pos.id) + '/voter-list', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'text/csv' },
+                                    body: await file.text()
+                                });
+                                $('positionVoterCsv').value = '';
+                                showPositionVoterMessage('Uploaded this position’s list with ' + response.eligibleVoters.toLocaleString()
+                                    + (response.eligibleVoters === 1 ? ' eligible voter.' : ' eligible voters.'), 'ok');
+                                await load();
+                            } catch (error) {
+                                showPositionVoterMessage(error.message, 'err');
+                            } finally {
+                                button.disabled = false;
+                            }
+                        });
+                        function showPositionVoterMessage(text, type) {
+                            $('positionVoterMsg').textContent = text;
+                            $('positionVoterMsg').className = 'msg' + (type ? ' ' + type : '');
+                        }
                         const del = el('button', 'danger', 'Delete candidate');
                         del.type = 'button';
                         del.addEventListener('click', async () => {

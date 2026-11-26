@@ -2,6 +2,7 @@ require('dotenv').config();
 const pool = require('../db/connection');
 
 const VERSION = '20261026_kigali_utc_schedule';
+const POSITION_VOTER_LIST_VERSION = '20261126_position_voter_lists';
 
 async function hasTable(table) {
     const [[result]] = await pool.query(
@@ -81,6 +82,7 @@ async function main() {
     await ensureColumn('positions', 'candidate_entry_closed', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumn('positions', 'voting_starts_at', 'DATETIME NULL');
     await ensureColumn('positions', 'voting_ends_at', 'DATETIME NULL');
+    await ensureColumn('positions', 'position_voter_list_uploaded_at', 'DATETIME NULL');
     await ensureColumn('positions', 'results_published', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumn('positions', 'published_at', 'DATETIME NULL');
     await ensureColumn('positions', 'results_hash', 'CHAR(64) NULL');
@@ -198,6 +200,17 @@ async function main() {
         CONSTRAINT fk_election_notification_reads_position FOREIGN KEY (position_id) REFERENCES positions(id)
             ON UPDATE CASCADE ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS position_voters (
+        position_id INT NOT NULL,
+        student_id ${studentId.Type} NOT NULL,
+        added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (position_id, student_id),
+        KEY idx_position_voters_student (student_id),
+        CONSTRAINT fk_position_voters_position FOREIGN KEY (position_id) REFERENCES positions(id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+        CONSTRAINT fk_position_voters_student FOREIGN KEY (student_id) REFERENCES students(id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     await pool.query(`INSERT IGNORE INTO voter_accounts
         (reg_number, full_name, email, password_hash, failed_attempts, locked_until)
         SELECT reg_number, full_name, contact_email, password_hash, failed_attempts, locked_until
@@ -283,6 +296,32 @@ async function main() {
         version VARCHAR(100) NOT NULL PRIMARY KEY,
         applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+    const [[positionVoterMigration]] = await pool.query(
+        'SELECT version FROM app_migrations WHERE version = ?', [POSITION_VOTER_LIST_VERSION]
+    );
+    if (!positionVoterMigration) {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            await connection.query(`INSERT IGNORE INTO position_voters (position_id, student_id)
+                SELECT p.id, s.id
+                FROM positions p
+                JOIN students s ON s.role = 'voter'
+                    AND (p.campus = '' OR p.campus = s.campus)`);
+            await connection.query(`UPDATE positions
+                SET position_voter_list_uploaded_at = UTC_TIMESTAMP()
+                WHERE position_voter_list_uploaded_at IS NULL`);
+            await connection.query('INSERT INTO app_migrations (version) VALUES (?)', [POSITION_VOTER_LIST_VERSION]);
+            await connection.commit();
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+        console.log('Existing position access lists initialized from the official voter roster and campus rules.');
+    }
 
     const [[migration]] = await pool.query('SELECT version FROM app_migrations WHERE version = ?', [VERSION]);
     if (!migration) {
