@@ -36,7 +36,10 @@
       <p class="sub">First choose the position or group, then enter each candidate's information.</p>
 
             <div class="card voter-admin-card">
-              <h2>Voter list</h2>
+              <div class="voter-list-heading">
+                <h2>Voter list</h2>
+                <a class="eligible-voters-shortcut" href="eligible-voters.html">View or manage all voters</a>
+              </div>
               <p class="sub" id="voterSummary">Loading...</p>
               <p class="sub">CSV header: <code>reg_number,full_name,contact_email,campus</code>. Every field must be filled on every row; the entire file is rejected if any row is incomplete or invalid.</p>
               <input type="file" id="voterFile" accept=".csv,text/csv">

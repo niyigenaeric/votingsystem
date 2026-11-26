@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eligible voters - UR Student Elections</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="theme-toggle.js" defer></script>
+  <script src="session-guard.js"></script>
+</head>
+<body class="eligible-voters-page">
+  <main class="wide eligible-voters-shell">
+    <header class="card eligible-voters-header">
+      <div>
+        <p class="eyebrow">ELECTION ADMINISTRATION</p>
+        <h1>Eligible voters</h1>
+        <p class="sub">Review the official student voter list, update records, or download the list as a CSV file.</p>
+      </div>
+      <div class="eligible-voters-actions">
+        <a class="eligible-back" href="candidate.html">Upload or check CSV</a>
+        <a class="eligible-back" href="admin.html">Back to dashboard</a>
+        <a class="admin-action" id="downloadList" href="/api/admin/students/export">Download CSV</a>
+      </div>
+    </header>
+
+    <section class="card eligible-voters-panel" aria-labelledby="listTitle">
+      <div class="eligible-list-heading">
+        <div>
+          <h2 id="listTitle">Official voter list</h2>
+          <p class="sub" id="listSummary">Loading eligible voters…</p>
+        </div>
+        <button type="button" class="admin-action" id="addVoter">Add voter</button>
+      </div>
+
+      <details class="eligible-editor" id="voterEditor">
+        <summary id="editorSummary">Add an eligible voter</summary>
+        <form id="voterForm" class="eligible-voter-form">
+          <input type="hidden" id="voterId">
+          <div class="eligible-form-grid">
+            <div>
+              <label for="regNumber">Registration number</label>
+              <input type="text" id="regNumber" maxlength="9" inputmode="numeric" autocomplete="off" placeholder="e.g. 223007576" required>
+              <p class="eligible-form-hint" id="regNumberHint">This ID is fixed after the record is created.</p>
+            </div>
+            <div>
+              <label for="fullName">Full name</label>
+              <input type="text" id="fullName" maxlength="100" autocomplete="name" placeholder="Student full name" required>
+            </div>
+            <div>
+              <label for="email">Official contact email</label>
+              <input type="email" id="email" maxlength="150" autocomplete="email" placeholder="name@example.com" required>
+            </div>
+            <div>
+              <label for="campus">Campus</label>
+              <select id="campus" required><option value="">Choose campus</option></select>
+            </div>
+          </div>
+          <p class="eligible-form-hint" id="accountMatchHint" hidden></p>
+          <p class="eligible-form-hint eligible-delete-hint">Removing a voter removes their eligibility record. Their separate account is retained; voters with election receipts cannot be removed.</p>
+          <div class="eligible-form-actions">
+            <button type="submit" class="admin-action" id="saveVoter">Add to eligible list</button>
+            <button type="button" class="eligible-cancel" id="cancelEdit">Cancel</button>
+          </div>
+          <div class="msg" id="formMessage" role="status" aria-live="polite"></div>
+        </form>
+      </details>
+
+      <div class="eligible-toolbar">
+        <label for="voterSearch">Search voters</label>
+        <input type="search" id="voterSearch" placeholder="Registration number, name, email, or campus" autocomplete="off">
+      </div>
+      <div class="msg" id="pageMessage" role="status" aria-live="polite"></div>
+      <div class="eligible-table-wrap">
+        <table class="eligible-voter-table">
+          <thead>
+            <tr><th>Registration number</th><th>Full name</th><th>Official email</th><th>Campus</th><th>Account</th><th>Email activation</th><th class="eligible-actions-column">Actions</th></tr>
+          </thead>
+          <tbody id="voterRows"><tr><td colspan="7" class="eligible-empty">Loading voter list…</td></tr></tbody>
+        </table>
+      </div>
+      <nav class="eligible-pagination" aria-label="Voter list pages">
+        <button type="button" id="previousPage" class="eligible-page-button" disabled>Previous</button>
+        <span id="pageStatus" aria-live="polite"></span>
+        <button type="button" id="nextPage" class="eligible-page-button" disabled>Next</button>
+      </nav>
+    </section>
+  </main>
+
+  <script>
+    const role = sessionStorage.getItem('role');
+    const $ = id => document.getElementById(id);
+    const pageSize = 50;
+    let currentPage = 1;
+    let totalVoters = 0;
+    let searchTimer;
+    let currentRows = [];
+
+    if (role !== 'admin' && role !== 'auditor') window.location.replace('/');
+    const canEdit = role === 'admin';
+    $('addVoter').hidden = !canEdit;
+    $('downloadList').hidden = !canEdit;
+    $('voterEditor').hidden = !canEdit;
+
+    function setMessage(element, text, type) {
+      element.textContent = text;
+      element.className = 'msg' + (type ? ` ${type}` : '');
+    }
+
+    async function request(url, options = {}) {
+      const response = await fetch(url, { ...options, credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        sessionStorage.removeItem('role');
+        window.location.replace('/');
+        throw new Error('Your session has expired. Sign in again.');
+      }
+      if (!response.ok) throw new Error(data.message || 'Could not complete the request.');
+      return data;
+    }
+
+    function addCell(row, value, className) {
+      const cell = document.createElement('td');
+      if (className) cell.className = className;
+      cell.textContent = value == null || value === '' ? '—' : String(value);
+      row.appendChild(cell);
+      return cell;
+    }
+
+    function renderRows() {
+      const body = $('voterRows');
+      body.replaceChildren();
+      if (!currentRows.length) {
+        const row = document.createElement('tr');
+        const cell = addCell(row, 'No eligible voters found.', 'eligible-empty');
+        cell.colSpan = 7;
+        body.appendChild(row);
+        return;
+      }
+      currentRows.forEach(voter => {
+        const row = document.createElement('tr');
+        addCell(row, voter.regNumber, 'eligible-reg-number');
+        addCell(row, voter.fullName);
+        addCell(row, voter.email, 'eligible-email');
+        addCell(row, voter.campus);
+        addCell(row, voter.accountCreated ? 'Registered' : 'No account');
+        addCell(row, voter.isActivated ? 'Verified' : 'Not verified');
+        const actions = addCell(row, '', 'eligible-row-actions');
+        if (canEdit) {
+          const edit = document.createElement('button');
+          edit.type = 'button';
+          edit.className = 'eligible-edit-button';
+          edit.textContent = 'Edit';
+          edit.addEventListener('click', () => editVoter(voter));
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'eligible-remove-button';
+          remove.textContent = 'Remove';
+          remove.addEventListener('click', () => removeVoter(voter, remove));
+          actions.append(edit, remove);
+        } else {
+          actions.textContent = 'View only';
+        }
+        body.appendChild(row);
+      });
+    }
+
+    async function loadVoters() {
+      $('previousPage').disabled = true;
+      $('nextPage').disabled = true;
+      try {
+        const query = new URLSearchParams({ page: String(currentPage), search: $('voterSearch').value.trim() });
+        const data = await request(`/api/admin/students?${query}`);
+        const pageCount = Math.max(1, Math.ceil(data.total / pageSize));
+        if (currentPage > pageCount) {
+          currentPage = pageCount;
+          return loadVoters();
+        }
+        currentRows = data.voters;
+        totalVoters = data.total;
+        $('listSummary').textContent = `${totalVoters.toLocaleString()} eligible ${totalVoters === 1 ? 'voter' : 'voters'}${canEdit ? ' · Changes are recorded in the audit log.' : ' · Read-only access.'}`;
+        $('pageStatus').textContent = `Page ${currentPage} of ${pageCount}`;
+        $('previousPage').disabled = currentPage <= 1;
+        $('nextPage').disabled = currentPage >= pageCount;
+        setMessage($('pageMessage'), '', '');
+        renderRows();
+      } catch (error) {
+        setMessage($('pageMessage'), error.message, 'err');
+      }
+    }
+
+    function resetEditor() {
+      $('voterForm').reset();
+      $('voterId').value = '';
+      $('regNumber').readOnly = false;
+      $('regNumberHint').textContent = 'This ID is fixed after the record is created.';
+      $('editorSummary').textContent = 'Add an eligible voter';
+      $('saveVoter').textContent = 'Add to eligible list';
+      $('accountMatchHint').hidden = true;
+      $('accountMatchHint').textContent = '';
+      setMessage($('formMessage'), '', '');
+    }
+
+    function editVoter(voter) {
+      $('voterEditor').open = true;
+      $('voterId').value = voter.id;
+      $('regNumber').value = voter.regNumber;
+      $('regNumber').readOnly = true;
+      $('regNumberHint').textContent = 'Registration numbers cannot be changed because they are linked to election records.';
+      $('fullName').value = voter.fullName;
+      $('email').value = voter.email;
+      $('campus').value = voter.campus || '';
+      $('editorSummary').textContent = `Edit ${voter.regNumber}`;
+      $('saveVoter').textContent = 'Save changes';
+      $('accountMatchHint').hidden = !voter.accountCreated;
+      $('accountMatchHint').textContent = voter.accountCreated
+        ? `This record has a voter account. Keep the name and email matched to that account to preserve voting eligibility${voter.accountFullName && voter.accountEmail ? ` (account: ${voter.accountFullName}, ${voter.accountEmail}).` : '.'}`
+        : '';
+      setMessage($('formMessage'), '', '');
+      $('fullName').focus();
+      $('voterEditor').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    $('voterForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!canEdit) return;
+      const id = $('voterId').value;
+      const payload = {
+        regNumber: $('regNumber').value.trim(),
+        fullName: $('fullName').value.trim(),
+        email: $('email').value.trim(),
+        campus: $('campus').value
+      };
+      const save = $('saveVoter');
+      save.disabled = true;
+      setMessage($('formMessage'), id ? 'Saving voter details…' : 'Adding voter…', '');
+      try {
+        const result = await request(id ? `/api/admin/students/${encodeURIComponent(id)}` : '/api/admin/students', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        resetEditor();
+        $('voterEditor').open = false;
+        currentPage = 1;
+        await loadVoters();
+        setMessage($('pageMessage'), result.message, 'ok');
+      } catch (error) {
+        setMessage($('formMessage'), error.message, 'err');
+      } finally {
+        save.disabled = false;
+      }
+    });
+
+    async function removeVoter(voter, button) {
+      const confirmed = window.confirm(
+        `Remove ${voter.fullName} (${voter.regNumber}) from the eligible voter list?\n\nTheir voter account will remain, but it will no longer be eligible to vote. Any voter with a protected election receipt cannot be removed.`
+      );
+      if (!confirmed) return;
+      button.disabled = true;
+      try {
+        const result = await request(`/api/admin/students/${encodeURIComponent(voter.id)}`, { method: 'DELETE' });
+        await loadVoters();
+        setMessage($('pageMessage'), result.message, 'ok');
+      } catch (error) {
+        button.disabled = false;
+        setMessage($('pageMessage'), error.message, 'err');
+      }
+    }
+
+    $('addVoter').addEventListener('click', () => {
+      resetEditor();
+      $('voterEditor').open = true;
+      $('regNumber').focus();
+      $('voterEditor').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    $('cancelEdit').addEventListener('click', () => {
+      resetEditor();
+      $('voterEditor').open = false;
+    });
+    $('previousPage').addEventListener('click', () => {
+      if (currentPage > 1) { currentPage--; loadVoters(); }
+    });
+    $('nextPage').addEventListener('click', () => {
+      if (currentPage * pageSize < totalVoters) { currentPage++; loadVoters(); }
+    });
+    $('voterSearch').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { currentPage = 1; loadVoters(); }, 250);
+    });
+
+    async function loadCampuses() {
+      if (!canEdit) return;
+      try {
+        const campuses = await request('/api/admin/campuses');
+        campuses.forEach(name => {
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = name;
+          $('campus').appendChild(option);
+        });
+      } catch (error) {
+        setMessage($('pageMessage'), error.message, 'err');
+      }
+    }
+
+    loadCampuses();
+    loadVoters();
+  </script>
+</body>
+</html>

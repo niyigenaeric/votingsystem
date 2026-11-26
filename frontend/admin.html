@@ -19,7 +19,7 @@
       </a>
       <div class="admin-header-actions">
         <span class="admin-role" id="adminRole"></span>
-        <button class="admin-menu-toggle" id="menuToggle" type="button" aria-controls="adminSidebar" aria-expanded="false"
+        <button class="admin-menu-toggle" id="menuToggle" type="button" aria-controls="adminSidebar" aria-expanded="true"
           aria-label="Show navigation menu" title="Show navigation menu">☰</button>
         <div class="notification-center" data-notification-center>
           <button class="notification-toggle" type="button" data-notification-toggle aria-expanded="false"
@@ -39,8 +39,8 @@
       </div>
     </header>
 
-    <div class="admin-layout sidebar-collapsed" id="adminLayout">
-      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin menu" aria-hidden="true" inert>
+    <div class="admin-layout" id="adminLayout">
+      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin menu" aria-hidden="false">
         <div class="admin-sidebar-heading">
           <p class="admin-sidebar-title">Manage election</p>
         </div>
@@ -51,11 +51,17 @@
           <a href="#electionSection" class="admin-sidebar-link" data-section="electionSection" aria-label="Election control" title="Election control">
             <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/election-control.jpg" alt=""></span><span class="admin-sidebar-text">Election control</span>
           </a>
-          <a href="candidate.html" class="admin-sidebar-link" id="studentsNav" aria-label="Eligible students" title="Eligible students">
-            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/eligible-students.jpg" alt=""></span><span class="admin-sidebar-text">Eligible students</span>
+          <a href="eligible-voters.html" class="admin-sidebar-link" id="studentsNav" aria-label="Eligible voters" title="Eligible voters">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/eligible-students.jpg" alt=""></span><span class="admin-sidebar-text">Voter management</span>
+          </a>
+          <a href="candidate.html" class="admin-sidebar-link" id="candidatesNav" aria-label="Candidate management" title="Candidate management">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/election-control.jpg" alt=""></span><span class="admin-sidebar-text">Candidate management</span>
           </a>
           <a href="#resultsSection" class="admin-sidebar-link" data-section="resultsSection" aria-label="Results" title="Results">
             <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/results.jpg" alt=""></span><span class="admin-sidebar-text">Results</span>
+          </a>
+          <a href="#archiveSection" class="admin-sidebar-link" data-section="archiveSection" aria-label="Archived elections" title="Archived elections">
+            <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/election-control.jpg" alt=""></span><span class="admin-sidebar-text">Archived elections</span>
           </a>
           <a href="#auditSection" class="admin-sidebar-link" data-section="auditSection" aria-label="Audit log" title="Audit log">
             <span class="admin-sidebar-icon" aria-hidden="true"><img src="assets/sidebar-icons/audit-log.jpg" alt=""></span><span class="admin-sidebar-text">Audit log</span>
@@ -79,12 +85,60 @@
         <section class="card admin-section" id="overview" aria-labelledby="overviewTitle">
           <div class="section-heading">
             <div><p class="eyebrow">AT A GLANCE</p><h2 id="overviewTitle">Election overview</h2></div>
-            <button type="button" class="admin-action" id="addCandidates">Add candidates</button>
+            <div class="admin-section-actions">
+              <a class="admin-action" id="manageEligibleVoters" href="eligible-voters.html" hidden>Manage eligible voters</a>
+              <button type="button" class="admin-action" id="addCandidates">Add candidates</button>
+            </div>
           </div>
-          <div class="stats">
-            <div class="stat"><span class="stat-icon" aria-hidden="true">01</span><b id="sTotal">-</b><span>Eligible voters</span></div>
-            <div class="stat"><span class="stat-icon" aria-hidden="true">02</span><b id="sAct">-</b><span>Activated accounts</span></div>
-            <div class="stat"><span class="stat-icon" aria-hidden="true">03</span><b id="sVoted">-</b><span>Position ballots cast</span></div>
+          <div class="stats admin-metric-grid">
+            <article class="stat admin-metric-card">
+              <span class="admin-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20M16 5a3.5 3.5 0 0 1 0 6.8M18 14a5 5 0 0 1 3.5 4.8V20"></path></svg></span>
+              <span class="admin-metric-label">Eligible voters</span>
+              <b id="sTotal" aria-live="polite">-</b>
+              <span class="admin-metric-note">On the official voter list</span>
+            </article>
+            <article class="stat admin-metric-card">
+              <span class="admin-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16.5 9"></path></svg></span>
+              <span class="admin-metric-label">Voter-list emails activated</span>
+              <b id="sAct" aria-live="polite">-</b>
+              <span class="admin-metric-note">Official voter-list email status</span>
+            </article>
+            <article class="stat admin-metric-card">
+              <span class="admin-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 3h14v18l-7-4-7 4z"></path><path d="M8.5 8h7M8.5 11h7"></path></svg></span>
+              <span class="admin-metric-label">Ballots cast</span>
+              <b id="sVoted" aria-live="polite">-</b>
+              <span class="admin-metric-note">Counts ballots across positions, not unique voters</span>
+            </article>
+            <article class="stat admin-metric-card">
+              <span class="admin-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h4"></path></svg></span>
+              <span class="admin-metric-label">Active positions</span>
+              <b id="sPositions" aria-live="polite">-</b>
+              <span class="admin-metric-note" id="statPositionsNote">Excludes archived positions</span>
+            </article>
+          </div>
+          <div class="admin-insights" aria-label="Election analytics">
+            <article class="admin-insight-card" aria-labelledby="activationTitle">
+              <div class="admin-insight-heading">
+              <div><p class="eyebrow">VOTER READINESS</p><h3 id="activationTitle">Official email activation</h3></div>
+                <strong id="activationRate">—</strong>
+              </div>
+              <div class="admin-progress-track" role="progressbar" id="activationProgress" aria-label="Eligible voter-list entries with activated email" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <span></span>
+              </div>
+              <p id="activationSummary" class="admin-insight-note">Loading official voter-list email status…</p>
+            </article>
+            <article class="admin-insight-card" aria-labelledby="progressTitle">
+              <div class="admin-insight-heading">
+                <div><p class="eyebrow">POSITION STATUS</p><h3 id="progressTitle">Election progress</h3></div>
+              </div>
+              <div class="admin-progress-list">
+                <div><span class="admin-progress-dot is-open" aria-hidden="true"></span><span>Open</span><strong id="progressOpen">0</strong></div>
+                <div><span class="admin-progress-dot is-awaiting" aria-hidden="true"></span><span>Awaiting manual opening</span><strong id="progressAwaiting">0</strong></div>
+                <div><span class="admin-progress-dot is-scheduled" aria-hidden="true"></span><span>Scheduled</span><strong id="progressScheduled">0</strong></div>
+                <div><span class="admin-progress-dot is-closed" aria-hidden="true"></span><span>Closed or published</span><strong id="progressClosed">0</strong></div>
+                <div><span class="admin-progress-dot is-attention" aria-hidden="true"></span><span>Schedule needs attention</span><strong id="progressAttention">0</strong></div>
+              </div>
+            </article>
           </div>
           <div id="msgStats" class="msg" role="status" aria-live="polite"></div>
           <h3 class="admin-subheading">Positions and candidates</h3>
@@ -154,10 +208,23 @@
             </summary>
             <div class="admin-archive-content">
               <div class="section-heading">
-                <div><p class="eyebrow">ACCOUNTABILITY</p><p class="sub admin-section-copy">Entries are displayed oldest first. Run <code>npm run db:verify-audit</code> on the server to recompute and verify the complete hash chain.</p></div>
-                <button type="button" class="admin-action" id="loadAudit">Load audit entries</button>
+                <div><p class="eyebrow">ACCOUNTABILITY</p><p class="sub admin-section-copy">Entries are displayed oldest first. Search the loaded records or verify the full audit hash chain against the database.</p></div>
+                <div class="admin-section-actions">
+                  <button type="button" class="admin-action admin-audit-verify" id="verifyAudit">Verify full chain</button>
+                  <button type="button" class="admin-action" id="loadAudit">Load audit entries</button>
+                </div>
               </div>
-              <div id="auditEntries" aria-live="polite"></div>
+              <div class="admin-audit-toolbar">
+                <label for="auditSearch">Search loaded records</label>
+                <input type="search" id="auditSearch" placeholder="Search action, administrator, details, or time" autocomplete="off">
+                <span id="auditCount" class="admin-audit-count" aria-live="polite">No records loaded</span>
+              </div>
+              <div class="admin-table-wrap admin-audit-table-wrap">
+                <table class="admin-audit-table">
+                  <thead><tr><th>Activity</th><th>Administrator / actor</th><th>Timestamp (CAT)</th><th>Chain status</th></tr></thead>
+                  <tbody id="auditEntries"><tr><td class="admin-table-empty" colspan="4">Load audit entries to review activity.</td></tr></tbody>
+                </table>
+              </div>
               <div id="msgAudit" class="msg" role="status" aria-live="polite"></div>
             </div>
           </details>
@@ -190,6 +257,8 @@
     if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
     const $ = x => document.getElementById(x);
     $('adminRole').textContent = role === 'admin' ? 'Administrator' : 'Auditor';
+    $('manageEligibleVoters').hidden = role !== 'admin';
+    if (window.matchMedia('(max-width: 760px)').matches) $('adminLayout').classList.add('sidebar-collapsed');
     const countdownUpdates = [];
     function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
     function note(box, text, type) { box.textContent = text; box.className = 'msg ' + type; }
@@ -205,6 +274,36 @@
         });
       });
       $('positionSearchEmpty').hidden = !query || matched > 0;
+    }
+
+    function getPositionState(position, now = Date.now()) {
+      if (position.archived) {
+        return {
+          key: 'archived',
+          label: 'Archived',
+          reason: position.published ? 'Results were published before this position was archived.' : 'Voting was closed before this position was archived.'
+        };
+      }
+      if (position.status === 'open') {
+        return { key: 'open', label: 'Open', reason: 'Voters can cast ballots until the scheduled end time.' };
+      }
+      if (position.status === 'closed') {
+        return position.published
+          ? { key: 'published', label: 'Results published', reason: 'The results are published for eligible voters.' }
+          : { key: 'closed', label: 'Closed', reason: 'Review the tally and publish results when they are ready.' };
+      }
+      const start = Date.parse(position.votingStartsAt || '');
+      const end = Date.parse(position.votingEndsAt || '');
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        return { key: 'needs-schedule', label: 'Schedule needed', reason: 'Set valid start and end times before voting can open.' };
+      }
+      if (end <= now) {
+        return { key: 'needs-schedule', label: 'Schedule ended', reason: 'The scheduled window has passed; update the schedule before opening.' };
+      }
+      if (start > now) {
+        return { key: 'scheduled', label: 'Scheduled', reason: 'Voting is not open yet. An administrator must open it after the scheduled start.' };
+      }
+      return { key: 'awaiting', label: 'Awaiting manual opening', reason: 'The scheduled start has arrived. An administrator must open voting manually.' };
     }
     async function signOut() {
       try {
@@ -253,6 +352,7 @@
     $('addCandidates').addEventListener('click', () => { window.location.href = 'candidate.html'; });
     if (role !== 'admin') {
       $('studentsNav').hidden = true;
+      $('candidatesNav').hidden = true;
       $('addCandidates').style.display = 'none';
     }
 
@@ -275,6 +375,15 @@
       try {
         const s = await call('/api/admin/stats');
         $('sTotal').textContent = s.total ?? 0; $('sAct').textContent = s.activated ?? 0; $('sVoted').textContent = s.voted ?? 0;
+        const total = Number(s.total) || 0;
+        const activated = Number(s.activated) || 0;
+        const activationPercent = total ? Math.min(100, Math.round(activated / total * 100)) : 0;
+        $('activationRate').textContent = total ? activationPercent + '%' : '—';
+        $('activationProgress').setAttribute('aria-valuenow', String(activationPercent));
+        $('activationProgress').firstElementChild.style.width = activationPercent + '%';
+        $('activationSummary').textContent = total
+          ? activated.toLocaleString() + ' of ' + total.toLocaleString() + ' official voter-list entries have activated email.'
+          : 'Add eligible voter-list entries to begin tracking email activation.';
       } catch (e) { note($('msgStats'), e.message, 'err'); }
     }
 
@@ -285,12 +394,36 @@
         const activePositions = d.positions.filter(position => !position.archived);
         const archivedPositions = d.positions.filter(position => position.archived);
         const openCount = activePositions.filter(position => position.status === 'open').length;
+        const positionStates = activePositions.map(position => getPositionState(position));
+        const stateCounts = positionStates.reduce((counts, state) => {
+          counts[state.key] = (counts[state.key] || 0) + 1;
+          return counts;
+        }, {});
+        const awaitingCount = stateCounts.awaiting || 0;
+        const scheduledCount = stateCounts.scheduled || 0;
+        $('sPositions').textContent = activePositions.length.toLocaleString();
+        $('statPositionsNote').textContent = archivedPositions.length
+          ? archivedPositions.length + (archivedPositions.length === 1 ? ' archived position excluded' : ' archived positions excluded')
+          : 'Excludes archived positions';
+        $('progressOpen').textContent = openCount;
+        $('progressAwaiting').textContent = awaitingCount;
+        $('progressScheduled').textContent = scheduledCount;
+        $('progressClosed').textContent = (stateCounts.closed || 0) + (stateCounts.published || 0);
+        $('progressAttention').textContent = stateCounts['needs-schedule'] || 0;
         $('activeVotingText').textContent = openCount
           ? 'Voting active for ' + openCount + (openCount === 1 ? ' position' : ' positions')
-          : 'No active voting';
+          : awaitingCount
+            ? 'No active voting · ' + awaitingCount + (awaitingCount === 1 ? ' position needs manual opening' : ' positions need manual opening')
+            : scheduledCount
+              ? 'No active voting · ' + scheduledCount + (scheduledCount === 1 ? ' position scheduled' : ' positions scheduled')
+              : activePositions.length
+                ? 'No active voting · review position status'
+                : 'No positions configured';
         $('sidebarVotingText').textContent = openCount
           ? openCount + (openCount === 1 ? ' position voting' : ' positions voting')
-          : 'No active voting';
+          : awaitingCount
+            ? awaitingCount + (awaitingCount === 1 ? ' position needs opening' : ' positions need opening')
+            : 'No active voting';
         document.querySelector('.admin-sidebar-status-dot').classList.toggle('active', openCount > 0);
         $('activeVotingSummary').classList.toggle('inactive', openCount === 0);
         const list = $('posList');
@@ -309,18 +442,14 @@
           controls.appendChild(emptyRow);
         }
         activePositions.forEach(p => {
-          const state = p.status === 'open'
-            ? 'Voting open'
-            : p.status === 'closed'
-              ? (p.published ? 'Results published' : 'Voting closed')
-              : 'Not open';
+          const state = getPositionState(p);
           const a = el('a', 'pos-link');
           a.href = 'position.html?id=' + p.id;
           a.dataset.positionSearch = (p.title + ' ' + (p.campus || 'all campuses')).toLocaleLowerCase();
           a.append(el('b', '', p.title));
           const summary = el('span', 'position-summary');
           summary.append(
-            el('span', 'position-state ' + p.status, state),
+            el('span', 'position-state ' + state.key, state.label),
             ...(p.campus ? [el('span', 'position-candidate-count', p.campus + ' campus')] : []),
             el('span', 'position-candidate-count', p.candidates.length + (p.candidates.length === 1 ? ' candidate' : ' candidates')),
             el('span', 'position-candidate-count', p.candidateEntryClosed
@@ -328,6 +457,7 @@
               : p.candidateEntryDeadline
                 ? 'Candidates until ' + formatRwandaDateTime(p.candidateEntryDeadline)
                 : 'Candidate deadline not set'),
+            el('span', 'position-status-reason', state.reason),
             countdownElement(p, 'position-candidate-count')
           );
           a.append(summary);
@@ -348,9 +478,9 @@
                 : 'Candidate entry deadline not set'),
             countdownElement(p, 'admin-table-meta')
           );
-          const badge = el('span', 'position-state ' + p.status, state);
+          const badge = el('span', 'position-state ' + state.key, state.label);
           const statusCell = document.createElement('td');
-          statusCell.appendChild(badge);
+          statusCell.append(badge, el('span', 'admin-status-reason', state.reason));
           row.append(positionCell, detailsCell, statusCell);
           const actions = el('div', 'admin-control-actions');
 
@@ -367,11 +497,12 @@
             const next = p.status === 'setup' ? 'open' : 'closed';
             const button = el('button', 'admin-action', next === 'open' ? 'Open voting' : 'Close voting');
             button.type = 'button';
-            if (next === 'open' && (!p.votingStartsAt || !p.votingEndsAt
-              || new Date(p.votingStartsAt).getTime() > Date.now()
-              || new Date(p.votingEndsAt).getTime() <= Date.now())) {
+            const votingStart = Date.parse(p.votingStartsAt || '');
+            const votingEnd = Date.parse(p.votingEndsAt || '');
+            if (next === 'open' && (!Number.isFinite(votingStart) || !Number.isFinite(votingEnd)
+              || votingStart > Date.now() || votingEnd <= Date.now())) {
               button.disabled = true;
-              button.title = 'Voting can open only after its scheduled start and before its scheduled end';
+              button.title = state.reason;
             }
             if (next === 'open') p.openVotingButton = button;
             button.addEventListener('click', () => updatePositionStatus(p, next));
@@ -417,8 +548,9 @@
           detailsCell.appendChild(el('span', 'admin-table-meta',
             p.candidates.length + (p.candidates.length === 1 ? ' candidate' : ' candidates')));
           const statusCell = document.createElement('td');
-          statusCell.appendChild(el('span', 'position-state closed',
-            p.published ? 'Archived · results published' : 'Archived · voting closed'));
+          const archivedState = getPositionState(p);
+          statusCell.append(el('span', 'position-state archived', archivedState.label),
+            el('span', 'admin-status-reason', archivedState.reason));
           row.append(positionCell, detailsCell, statusCell);
           const actions = el('div', 'admin-control-actions');
           if (role === 'admin') {
@@ -484,27 +616,30 @@
           }
           return;
         }
-        if (position.status === 'closed') {
+        if (position.status === 'closed' || position.archived) {
           node.textContent = 'Voting is closed';
           return;
         }
-        if (!position.votingStartsAt) {
-          node.textContent = 'Voting date not set';
+        const start = Date.parse(position.votingStartsAt || '');
+        const end = Date.parse(position.votingEndsAt || '');
+        if (!Number.isFinite(start) || !Number.isFinite(end)) {
+          node.textContent = 'Set a valid voting schedule before opening';
           if (position.openVotingButton) position.openVotingButton.disabled = true;
           return;
         }
-        const remaining = new Date(position.votingStartsAt).getTime() - Date.now();
-        const end = position.votingEndsAt ? new Date(position.votingEndsAt).getTime() : NaN;
+        const remaining = start - Date.now();
         if (position.openVotingButton) {
-          position.openVotingButton.disabled = remaining > 0 || !Number.isFinite(end) || end <= Date.now();
+          position.openVotingButton.disabled = remaining > 0 || end <= Date.now();
           position.openVotingButton.title = remaining > 0
             ? 'Voting opens manually at or after the scheduled start time'
             : end <= Date.now()
-              ? 'The scheduled voting end time has passed'
+              ? 'The scheduled window has passed; update the schedule before opening'
               : 'Open voting for this position';
         }
         if (remaining <= 0) {
-          node.textContent = 'Scheduled start reached — open manually';
+          node.textContent = end <= Date.now()
+            ? 'Scheduled window ended — update schedule before opening'
+            : 'Scheduled start reached — open manually';
           return;
         }
         const totalSeconds = Math.floor(remaining / 1000);
@@ -571,17 +706,36 @@
           const card = el('article', 'admin-result-card');
           card.dataset.positionSearch = (position.title + ' ' + (position.campus || 'all campuses')).toLocaleLowerCase();
           const heading = el('div', 'admin-result-heading');
-          heading.append(el('h3', '', position.title), el('span', 'position-state closed',
-            position.archived ? 'Archived' : position.published ? 'Published' : 'Closed'));
+          const positionState = getPositionState(position);
+          heading.append(el('h3', '', position.title),
+            el('span', 'position-state ' + positionState.key, positionState.label));
           card.appendChild(heading);
           const table = el('table', 'rtable');
+          const head = document.createElement('thead');
+          const headRow = document.createElement('tr');
+          headRow.append(el('th', '', 'Candidate'), el('th', '', 'Votes'), el('th', '', 'Vote share'));
+          head.appendChild(headRow);
           const body = document.createElement('tbody');
+          const totalVotes = position.candidates.reduce((total, candidate) => total + (Number(candidate.votes) || 0), 0);
           position.candidates.forEach(candidate => {
+            const votes = Number(candidate.votes) || 0;
+            const share = totalVotes ? Math.round(votes / totalVotes * 100) : 0;
             const tr = document.createElement('tr');
-            tr.append(el('td', '', candidate.name), el('td', '', candidate.votes + (candidate.votes === 1 ? ' vote' : ' votes')));
+            tr.append(el('td', '', candidate.name),
+              el('td', '', votes + (votes === 1 ? ' vote' : ' votes')));
+            const shareCell = document.createElement('td');
+            shareCell.className = 'admin-result-share-cell';
+            const meter = el('div', 'admin-result-vote-meter');
+            meter.setAttribute('role', 'img');
+            meter.setAttribute('aria-label', share + '% of votes for this position');
+            const fill = document.createElement('span');
+            fill.style.width = share + '%';
+            meter.appendChild(fill);
+            shareCell.append(meter, el('span', 'admin-result-vote-share', share + '%'));
+            tr.appendChild(shareCell);
             body.appendChild(tr);
           });
-          table.appendChild(body);
+          table.append(head, body);
           card.appendChild(table);
           if (position.publishedAt) {
             card.appendChild(el('p', 'admin-result-meta', 'Published ' + formatRwandaDateTime(position.publishedAt)));
@@ -600,31 +754,121 @@
     }
 
     let lastAuditId = 0;
+    let auditHasMore = true;
+    let auditVerification = null;
+    const auditEntries = [];
+
+    function renderAuditEntries() {
+      const query = $('auditSearch').value.trim().toLocaleLowerCase();
+      const matchingEntries = auditEntries.filter(entry => [
+        entry.id, entry.eventType, entry.actor, entry.details, entry.createdAt
+      ].some(value => String(value || '').toLocaleLowerCase().includes(query)));
+      const body = $('auditEntries');
+      body.replaceChildren();
+      if (!auditEntries.length) {
+        const row = document.createElement('tr');
+        const cell = el('td', 'admin-table-empty', 'No audit entries are available.');
+        cell.colSpan = 4;
+        row.appendChild(cell);
+        body.appendChild(row);
+      } else if (!matchingEntries.length) {
+        const row = document.createElement('tr');
+        const cell = el('td', 'admin-table-empty', 'No loaded audit entries match your search.');
+        cell.colSpan = 4;
+        row.appendChild(cell);
+        body.appendChild(row);
+      }
+      matchingEntries.forEach(entry => {
+        const row = document.createElement('tr');
+        const activity = document.createElement('td');
+        activity.append(el('strong', 'admin-audit-action', entry.eventType),
+          el('span', 'admin-audit-details', entry.details || 'No details recorded'));
+        const actor = document.createElement('td');
+        actor.append(el('span', 'admin-audit-actor', entry.actor || 'Unknown actor'),
+          el('span', 'admin-audit-id', 'Entry #' + entry.id));
+        const timestamp = el('td', 'admin-audit-time', formatRwandaDateTime(entry.createdAt));
+        const chain = document.createElement('td');
+        const hashesRecorded = /^[a-f\d]{64}$/i.test(entry.previousHash || '')
+          && /^[a-f\d]{64}$/i.test(entry.entryHash || '');
+        const verified = auditVerification && auditVerification.verified;
+        const verificationFailed = auditVerification && !auditVerification.verified;
+        const failedEntry = verificationFailed && auditVerification.failedEntryId === entry.id;
+        const state = verified ? 'verified' : failedEntry ? 'failed' : verificationFailed ? 'blocked' : hashesRecorded ? 'recorded' : 'missing';
+        const stateText = verified
+          ? 'Chain verified'
+          : failedEntry
+            ? 'Verification failed here'
+            : verificationFailed
+              ? 'Not verified · chain failed'
+              : hashesRecorded ? 'Not yet verified' : 'Hash data unavailable';
+        chain.appendChild(el('span', 'admin-integrity-state ' + state, stateText));
+        if (hashesRecorded) {
+          const disclosure = document.createElement('details');
+          disclosure.className = 'admin-audit-hashes';
+          disclosure.appendChild(el('summary', '', 'View chain hashes'));
+          disclosure.append(
+            el('code', '', 'Previous: ' + entry.previousHash),
+            el('code', '', 'Entry: ' + entry.entryHash)
+          );
+          chain.appendChild(disclosure);
+        }
+        row.append(activity, actor, timestamp, chain);
+        body.appendChild(row);
+      });
+      const verificationSummary = auditVerification
+        ? auditVerification.verified
+          ? 'Full chain verified (' + auditVerification.checked + ' entries)'
+          : 'Chain verification failed at entry #' + auditVerification.failedEntryId
+        : '';
+      const searchSummary = query
+        ? matchingEntries.length + ' matching of ' + auditEntries.length + ' loaded'
+        : auditEntries.length + (auditEntries.length === 1 ? ' record loaded' : ' records loaded');
+      $('auditCount').textContent = verificationSummary
+        ? verificationSummary + ' · ' + searchSummary
+        : searchSummary;
+    }
+
+    $('auditSearch').addEventListener('input', renderAuditEntries);
+    $('verifyAudit').addEventListener('click', async () => {
+      const button = $('verifyAudit');
+      button.disabled = true;
+      button.textContent = 'Verifying…';
+      try {
+        auditVerification = await call('/api/admin/audit/verify', { cache: 'no-store' });
+        renderAuditEntries();
+        if (auditVerification.verified) {
+          note($('msgAudit'), 'The complete audit chain is valid (' + auditVerification.checked + ' entries checked).', 'ok');
+        } else {
+          note($('msgAudit'), 'Audit chain verification failed at entry #' + auditVerification.failedEntryId + '. Contact the system administrator and preserve the audit data.', 'err');
+        }
+      } catch (error) {
+        auditVerification = null;
+        note($('msgAudit'), error.message, 'err');
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Verify full chain';
+      }
+    });
     $('loadAudit').addEventListener('click', async () => {
       $('loadAudit').disabled = true;
       try {
         const response = await call('/api/admin/audit?afterId=' + lastAuditId);
         const entries = response.entries || [];
-        if (!entries.length && lastAuditId === 0) {
-          $('auditEntries').replaceChildren(el('p', 'admin-empty', 'No audit entries are available.'));
-        }
-        entries.forEach(entry => {
-          const card = el('article', 'admin-result-card');
-          card.append(
-            el('h3', '', '#' + entry.id + ' · ' + entry.eventType),
-            el('p', 'admin-result-meta', formatRwandaDateTime(entry.createdAt) + ' · ' + entry.actor),
-            el('p', 'admin-result-meta', entry.details),
-            el('p', 'admin-result-hash', 'Previous hash: ' + entry.previousHash),
-            el('p', 'admin-result-hash', 'Entry hash: ' + entry.entryHash)
-          );
-          $('auditEntries').appendChild(card);
-          lastAuditId = entry.id;
-        });
-        note($('msgAudit'), entries.length ? 'Loaded ' + entries.length + ' audit entries.' : 'No more audit entries.', 'ok');
+        if (entries.length) auditVerification = null;
+        auditEntries.push(...entries);
+        if (entries.length) lastAuditId = entries[entries.length - 1].id;
+        auditHasMore = entries.length === 200;
+        renderAuditEntries();
+        $('loadAudit').textContent = auditHasMore
+          ? 'Load next 200 entries'
+          : auditEntries.length ? 'All audit entries loaded' : 'No audit entries found';
+        note($('msgAudit'), entries.length
+          ? 'Loaded ' + entries.length + ' additional audit ' + (entries.length === 1 ? 'entry.' : 'entries.')
+          : auditEntries.length ? 'All audit entries have been loaded.' : 'No audit entries are available.', 'ok');
       } catch (error) {
         note($('msgAudit'), error.message, 'err');
       } finally {
-        $('loadAudit').disabled = false;
+        $('loadAudit').disabled = !auditHasMore;
       }
     });
 

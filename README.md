@@ -53,8 +53,11 @@ GRANT SELECT, INSERT, UPDATE ON voting_system.voter_login_codes TO 'voting_app'@
 GRANT SELECT, INSERT, UPDATE ON voting_system.voter_email_verification_tokens TO 'voting_app'@'localhost';
 GRANT SELECT, INSERT, UPDATE ON voting_system.voter_password_reset_tokens TO 'voting_app'@'localhost';
 GRANT SELECT, INSERT, UPDATE ON voting_system.election_notification_reads TO 'voting_app'@'localhost';
+GRANT SELECT, INSERT, UPDATE, DELETE ON voting_system.students TO 'voting_app'@'localhost';
 SHOW GRANTS FOR 'voting_app'@'localhost';
 ```
+
+The students-table grant supports the admin eligible-voter list. The application restricts these operations to voter roster rows, logs changes to the audit chain, keeps registration numbers fixed, and refuses to remove voters with election receipts. Do not grant DELETE at database-wide scope; run `npm run db:check-grants` after applying the table-level grant.
 
 For an existing database updated manually in MySQL Workbench, after taking a backup, create the token and notification-read tables and grant access. No new account column is required:
 

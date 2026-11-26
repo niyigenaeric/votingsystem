@@ -3,6 +3,7 @@
     '/admin.html': ['admin', 'auditor'],
     '/candidate.html': ['admin'],
     '/position.html': ['admin', 'auditor'],
+    '/eligible-voters.html': ['admin'],
     '/vote.html': ['voter']
   };
   const allowedRoles = rolesByPage[window.location.pathname];

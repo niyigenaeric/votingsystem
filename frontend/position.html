@@ -21,6 +21,7 @@
             </div>
             <div class="position-header-actions">
                 <button type="button" class="back-button" id="back" data-back-button aria-label="Back">Back</button>
+                <a class="eligible-voters-shortcut" id="eligibleVotersShortcut" href="eligible-voters.html" hidden>Eligible voters</a>
                 <div class="notification-center" data-notification-center>
                     <button class="notification-toggle" type="button" data-notification-toggle aria-expanded="false"
                         aria-controls="notificationsPanel" aria-label="Election notifications">
@@ -113,6 +114,7 @@
         if (role !== 'admin' && role !== 'auditor') window.location.href = 'index.html';
         const id = Number(new URLSearchParams(location.search).get('id'));
         const $ = x => document.getElementById(x);
+        $('eligibleVotersShortcut').hidden = role !== 'admin';
         let pos = null, editing = null;
         function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
         function show(text, type) { $('msg').textContent = text; $('msg').className = 'msg ' + type; }

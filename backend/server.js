@@ -129,6 +129,7 @@ app.get('/', (req, res, next) => serveHtml('index.html', req, res, next));
 app.get('/admin.html', requirePageRole('admin', 'auditor'), (req, res, next) => serveHtml('admin.html', req, res, next));
 app.get('/candidate.html', requirePageRole('admin'), (req, res, next) => serveHtml('candidate.html', req, res, next));
 app.get('/position.html', requirePageRole('admin', 'auditor'), (req, res, next) => serveHtml('position.html', req, res, next));
+app.get('/eligible-voters.html', requirePageRole('admin'), (req, res, next) => serveHtml('eligible-voters.html', req, res, next));
 app.get('/vote.html', requirePageRole('voter'), (req, res, next) => serveHtml('vote.html', req, res, next));
 app.get(['/index.html', '/activate.html', '/verify-email.html', '/reset-password.html', '/forgot-password.html', '/voter-login.html', '/voter-register.html'], (req, res, next) => serveHtml(req.path, req, res, next));
 app.use(express.static(frontendDir));

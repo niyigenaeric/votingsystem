@@ -10,6 +10,7 @@ async function main() {
     if (!database) throw new Error('DB_NAME is required to evaluate the current grants.');
     const restrictedTables = ['votes', 'voter_receipts', 'audit_log'];
     const voterAccountTables = ['voter_accounts', 'voter_login_codes', 'voter_email_verification_tokens', 'voter_password_reset_tokens', 'election_notification_reads'];
+    const voterListTables = ['students'];
     const forbidden = /\b(?:ALL PRIVILEGES|UPDATE|DELETE|ALTER|DROP)\b/i;
     const normalizedGrants = grants.map(grant => {
         const normalized = grant.replace(/`/g, '').toLowerCase();
@@ -33,6 +34,10 @@ async function main() {
             && forbidden.test(grant.privileges))
         || (voterAccountTables.some(table => grant.scope === `${database.toLowerCase()}.${table}`)
             && /\b(?:ALL PRIVILEGES|DELETE|ALTER|DROP)\b/i.test(grant.privileges))
+    );
+    const voterListUnsafeGrant = normalizedGrants.find(grant =>
+        voterListTables.some(table => grant.scope === `${database.toLowerCase()}.${table}`)
+            && /\b(?:ALL PRIVILEGES|ALTER|DROP)\b/i.test(grant.privileges)
     );
     const missingPermissions = [];
     for (const table of restrictedTables) {
@@ -61,19 +66,33 @@ async function main() {
             }
         }
     }
-    if (broadGrant || tableWriteGrants.length || voterAccountUnsafeGrant) {
-        console.error('FAIL: this database account can modify a protected vote/receipt/audit table.');
+    for (const table of voterListTables) {
+        const tableGrants = normalizedGrants.filter(grant =>
+            grant.scope === '*.*'
+            || grant.scope === `${database.toLowerCase()}.*`
+            || grant.scope === `${database.toLowerCase()}.${table}`
+        );
+        for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
+            if (!tableGrants.some(grant => /\bALL PRIVILEGES\b/i.test(grant.privileges)
+                || new RegExp(`\\b${privilege}\\b`, 'i').test(grant.privileges))) {
+                missingPermissions.push(`${table}: ${privilege}`);
+            }
+        }
+    }
+    if (broadGrant || tableWriteGrants.length || voterAccountUnsafeGrant || voterListUnsafeGrant) {
+        console.error('FAIL: this database account has unsafe broad privileges on a protected or voter-list table.');
         process.exitCode = 1;
         return;
     }
     if (missingPermissions.length) {
-        console.error('FAIL: required protected-table permissions are missing: ' + missingPermissions.join(', '));
+        console.error('FAIL: required table permissions are missing: ' + missingPermissions.join(', '));
         process.exitCode = 1;
         return;
     }
     console.log('No UPDATE, DELETE, ALTER, or DROP grant was found for the protected tables.');
     console.log('The protected tables have SELECT and INSERT privileges only.');
     console.log('Voter account, token, and notification-read tables have the SELECT, INSERT, and UPDATE privileges required by voter access.');
+    console.log('The students table has SELECT, INSERT, UPDATE, and DELETE privileges, with no table-level ALL, ALTER, or DROP grant.');
 }
 
 main()
